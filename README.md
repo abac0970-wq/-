@@ -1,759 +1,398 @@
-# -
-才藝課登記表
 [Uploading index.html…]()
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>才藝班上課與收費系統</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        /* 使用 Inter 作為主要字體，確保清晰度 */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f7f9fb;
-        }
-        .container {
-            max-width: 1200px;
-        }
-        /* 自訂按鈕樣式 */
-        .btn-primary {
-            @apply bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50;
-        }
-        .btn-secondary {
-            @apply bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded-lg transition duration-300 hover:bg-gray-300;
-        }
-    </style>
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, getDocs, runTransaction, updateDoc, deleteDoc, arrayUnion, arrayRemove, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // 設定 Firebase 變數
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        // 初始化 Firebase
-        if (Object.keys(firebaseConfig).length > 0) {
-            setLogLevel('Debug');
-            const app = initializeApp(firebaseConfig);
-            window.db = getFirestore(app);
-            window.auth = getAuth(app);
-        } else {
-            console.error("Firebase Configuration is missing.");
-            window.db = null;
-            window.auth = null;
-        }
-
-        let isAuthReady = false;
-        let currentUserId = null;
-        let unsubscribe = null;
-        let attendanceCollectionPath = '';
-
-        window.data = {
-            classes: [],
-            students: [],
-            enrollments: {}, // { studentId: [classId, classId, ...] }
-            records: {},     // { studentId_classId_YYYY-MM-DD: true/false }
-        };
-
-        const state = {
-            activeView: 'attendance', // 'config', 'students', 'attendance'
-            selectedDate: new Date().toISOString().substring(0, 10),
-            loading: true,
-            message: '',
-            userIdDisplay: 'N/A',
-            editingStudentId: null,
-            editingStudentName: null
-        };
-
-        // UI 渲染函數
-        const render = () => {
-            document.getElementById('app').innerHTML = `
-                <div class="bg-white p-4 shadow-lg rounded-xl mb-4">
-                    <div class="flex flex-wrap gap-2 text-sm font-medium">
-                        <button onclick="changeView('config')" class="${state.activeView === 'config' ? 'btn-primary' : 'btn-secondary'}">
-                            課程設定
-                        </button>
-                        <button onclick="changeView('students')" class="${state.activeView === 'students' ? 'btn-primary' : 'btn-secondary'}">
-                            學生名單
-                        </button>
-                        <button onclick="changeView('attendance')" class="${state.activeView === 'attendance' ? 'btn-primary' : 'btn-secondary'}">
-                            點名與計算
-                        </button>
-                    </div>
-                </div>
-                ${renderView()}
-                <div class="mt-4 p-2 text-xs text-gray-500 border-t">
-                    使用者 ID: <span id="userIdDisplay">${state.userIdDisplay}</span>
-                    ${state.loading ? '<span class="ml-4 animate-pulse text-indigo-600">載入中...</span>' : ''}
-                </div>
-                ${state.message ? `<div id="message-box" class="fixed bottom-4 right-4 bg-green-500 text-white p-3 rounded-lg shadow-xl">${state.message}</div>` : ''}
-            `;
-            // 自動移除訊息
-            if (state.message) {
-                setTimeout(() => {
-                    state.message = '';
-                    render();
-                }, 3000);
-            }
-        };
-
-        const renderView = () => {
-            switch (state.activeView) {
-                case 'config': return renderConfigView();
-                case 'students': return renderStudentsView();
-                case 'attendance': return renderAttendanceView();
-                default: return '';
-            }
-        };
-
-        // --- 1. 課程設定視圖 ---
-        const renderConfigView = () => {
-            // 所有按期收費的單價顯示單位改為 '堂'
-            const classesHtml = window.data.classes.map(c => `
-                <li class="p-3 border-b flex justify-between items-center hover:bg-gray-50">
-                    <div>
-                        <span class="font-semibold text-lg">${c.name}</span>
-                        <span class="text-sm text-gray-500 ml-2">(${c.billingType === 'monthly' ? '按月收費' : '按期收費'})</span>
-                        <div class="text-xs text-gray-400 mt-1">上課時段: ${c.schedule && c.schedule.length > 0 ? c.schedule.join('; ') : '未設定'}</div>
-                    </div>
-                    <div class="text-indigo-600 font-mono">
-                        NT$ ${c.rate.toLocaleString()} / ${c.billingType === 'monthly' ? '月' : '堂'}
-                    </div>
-                </li>
-            `).join('');
-
-            return `
-                <div class="bg-white p-6 rounded-xl shadow-lg">
-                    <h2 class="text-2xl font-bold mb-4 text-gray-800">課程與費率設定</h2>
-                    <p class="text-gray-600 mb-6">您可以在此處定義所有才藝班的課程、收費方式和單價。</p>
-                    
-                    <button onclick="exportTimetable()" class="btn-secondary mb-4">
-                        匯出課表
-                    </button>
-
-                    <ul class="border rounded-lg mb-6 divide-y">
-                        ${classesHtml.length > 0 ? classesHtml : '<li class="p-4 text-center text-gray-500">尚無課程資料。</li>'}
-                    </ul>
-
-                    <form onsubmit="handleClassAdd(event)" class="space-y-4 border-t pt-4">
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <input type="text" id="className" placeholder="課程名稱 (例如: 鋼琴)" required class="col-span-4 md:col-span-1 p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            
-                            <select id="billingType" required class="col-span-4 md:col-span-1 p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                                <option value="" disabled selected>選擇收費方式</option>
-                                <option value="per-session">按期收費 (單次/單堂)</option>
-                                <option value="monthly">按月收費</option>
-                            </select>
-
-                            <input type="number" id="classRate" placeholder="單次費率 (例如: 318)" required min="1" class="col-span-4 md:col-span-1 p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            
-                            <button type="submit" class="col-span-4 md:col-span-1 btn-primary">
-                                新增課程
-                            </button>
-
-                            <input type="text" id="classSchedule" placeholder="上課時段 (例: 週三14:00, 週五10:00 - 使用逗號分隔多個時段)" class="col-span-4 p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                        </div>
-                    </form>
-                </div>
-            `;
-        };
-
-        // --- 2. 學生名單視圖 (略，無變動) ---
-        const renderStudentsView = () => {
-            const studentsHtml = window.data.students.map(s => {
-                const enrolledClasses = (window.data.enrollments[s.id] || [])
-                    .map(classId => window.data.classes.find(c => c.id === classId)?.name || '未知')
-                    .join(', ');
-
-                return `
-                    <li class="p-3 border-b flex justify-between items-center hover:bg-gray-50">
-                        <span class="font-semibold text-lg">${s.name}</span>
-                        <div class="text-sm text-gray-500 text-right">
-                            <div class="font-medium">已報名課程:</div>
-                            <div class="text-xs">${enrolledClasses || '無'}</div>
-                        </div>
-                        <button onclick="showEnrollmentModal('${s.id}', '${s.name}')" class="btn-secondary ml-4">
-                            編輯報名
-                        </button>
-                    </li>
-                `;
-            }).join('');
-
-            return `
-                <div class="bg-white p-6 rounded-xl shadow-lg">
-                    <h2 class="text-2xl font-bold mb-4 text-gray-800">學生名單與報名管理</h2>
-                    <form onsubmit="handleStudentAdd(event)" class="flex mb-6 space-x-2">
-                        <input type="text" id="studentName" placeholder="學生姓名" required class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                        <button type="submit" class="btn-primary whitespace-nowrap">
-                            新增學生
-                        </button>
-                    </form>
-
-                    <ul class="border rounded-lg divide-y">
-                        ${studentsHtml.length > 0 ? studentsHtml : '<li class="p-4 text-center text-gray-500">目前尚無學生。</li>'}
-                    </ul>
-
-                    ${renderEnrollmentModal()}
-                </div>
-            `;
-        };
-
-        // --- 3. 點名與計算視圖 ---
-        const renderAttendanceView = () => {
-            const dateInput = `<input type="date" id="attendanceDate" value="${state.selectedDate}" onchange="changeAttendanceDate(this.value)" class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 w-full md:w-auto">`;
-
-            if (window.data.students.length === 0 || window.data.classes.length === 0) {
-                 return `
-                    <div class="bg-white p-8 rounded-xl shadow-lg text-center text-gray-600">
-                        <p class="text-xl font-semibold mb-3">系統尚未準備就緒</p>
-                        <p>請先到「課程設定」新增課程，並到「學生名單」新增學生。</p>
-                    </div>
-                `;
-            }
-
-            const attendanceRows = window.data.students.map(s => {
-                const enrolledClasses = window.data.enrollments[s.id] || [];
-                
-                // 學生未報名任何課程
-                if (enrolledClasses.length === 0) {
-                    return `<tr class="border-b"><td class="p-3 font-medium">${s.name}</td><td colspan="${window.data.classes.length + 1}" class="p-3 text-gray-400 italic text-center">未報名任何課程</td></tr>`;
-                }
-                
-                // 課程出席/收費列
-                const classCells = window.data.classes.map(c => {
-                    const isEnrolled = enrolledClasses.includes(c.id);
-                    if (!isEnrolled) {
-                        return `<td class="p-3 bg-gray-100 text-center">-</td>`;
-                    }
-
-                    const key = `${s.id}_${c.id}_${state.selectedDate}`;
-                    const isPresent = window.data.records[key] === true;
-                    
-                    return `
-                        <td class="p-3 text-center">
-                            <button 
-                                onclick="toggleAttendance('${s.id}', '${c.id}', '${state.selectedDate}')"
-                                class="w-8 h-8 rounded-full transition duration-150 ${isPresent ? 'bg-green-500 hover:bg-green-600 text-white shadow-md' : 'bg-red-200 hover:bg-red-300 text-red-700'}"
-                            >
-                                ${isPresent ? '✓' : 'X'}
-                            </button>
-                        </td>
-                    `;
-                }).join('');
-
-                const feeSummary = calculateFees(s.id);
-
-                return `
-                    <tr class="border-b hover:bg-blue-50/50 transition duration-100">
-                        <td class="p-3 font-semibold text-gray-700">${s.name}</td>
-                        ${classCells}
-                        <td class="p-3 font-bold text-lg text-right ${feeSummary.total > 0 ? 'text-indigo-700' : 'text-gray-500'}">
-                            ${feeSummary.total.toLocaleString()}
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-            
-            // 表頭
-            const classHeaders = window.data.classes.map(c => `<th class="p-3 text-center bg-indigo-50">${c.name}</th>`).join('');
-
-            return `
-                <div class="bg-white p-6 rounded-xl shadow-lg">
-                    <h2 class="text-2xl font-bold mb-4 text-gray-800">點名記錄與費用計算</h2>
-                    
-                    <div class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center space-y-3 md:space-y-0">
-                        <p class="text-gray-600">點名日期：</p>
-                        ${dateInput}
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200 border rounded-lg">
-                            <thead class="bg-indigo-100/70">
-                                <tr>
-                                    <th class="p-3 text-left w-1/6">學生姓名</th>
-                                    ${classHeaders}
-                                    <th class="p-3 text-right w-1/6 bg-indigo-200/50">應收總費用 (TWD)</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-100">
-                                ${attendanceRows.length > 0 ? attendanceRows : '<tr><td colspan="'+(window.data.classes.length + 2)+'" class="p-4 text-center text-gray-500">尚無學生數據。</td></tr>'}
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div class="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200 text-sm text-yellow-800">
-                        <p class="font-semibold mb-1">計算說明：</p>
-                        <ul class="list-disc list-inside space-y-1">
-                            <li>**費用計算**: 由於您的課程目前皆已調整為按次/堂收費，應收費用將完全基於當日的點名記錄。</li>
-                            <li>**按期收費**: 顯示**所選日期**的單次費用。若點名為 '✓' 則計費，為 'X' 則不計費。</li>
-                        </ul>
-                    </div>
-                </div>
-            `;
-        };
-
-        // --- 彈出視窗：編輯報名課程 (略，無變動) ---
-        const renderEnrollmentModal = () => {
-            const studentId = state.editingStudentId;
-            const studentName = state.editingStudentName;
-            if (!studentId) return '';
-
-            const enrolledClasses = window.data.enrollments[studentId] || [];
-            
-            const classCheckboxes = window.data.classes.map(c => {
-                const isChecked = enrolledClasses.includes(c.id);
-                return `
-                    <label class="flex items-center space-x-3 p-2 bg-gray-50 hover:bg-gray-100 rounded-lg">
-                        <input type="checkbox" 
-                            value="${c.id}" 
-                            ${isChecked ? 'checked' : ''}
-                            class="h-5 w-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                        >
-                        <span class="text-gray-900">${c.name} (${c.billingType === 'monthly' ? '月費' : '單堂'})</span>
-                    </label>
-                `;
-            }).join('');
-
-
-            return `
-                <div id="enrollment-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 z-50">
-                    <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
-                        <h3 class="text-xl font-bold mb-4 text-gray-800">編輯 ${studentName} 的報名課程</h3>
-                        <p class="mb-4 text-gray-600">勾選該學生已報名的課程：</p>
-                        
-                        <form id="enrollmentForm" onsubmit="handleEnrollmentUpdate(event, '${studentId}')" class="space-y-3">
-                            ${classCheckboxes}
-                            <div class="pt-4 flex justify-end space-x-3">
-                                <button type="button" onclick="hideEnrollmentModal()" class="btn-secondary">
-                                    取消
-                                </button>
-                                <button type="submit" class="btn-primary">
-                                    儲存報名
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            `;
-        };
-
-        // --- 匯出課表功能 ---
-        window.exportTimetable = () => {
-            const classes = window.data.classes;
-            if (classes.length === 0) {
-                state.message = '尚無課程可匯出！';
-                return render();
-            }
-
-            let exportText = '--- 才藝班課程時間表 ---\n\n';
-
-            // 匯出課程清單與時間
-            classes.forEach(c => {
-                const typeText = c.billingType === 'monthly' ? '按月收費' : '按期收費';
-                const rateText = `NT$ ${c.rate.toLocaleString()} / ${c.billingType === 'monthly' ? '月' : '堂'}`;
-                const scheduleText = c.schedule && c.schedule.length > 0 ? c.schedule.join('; ') : '未設定時段';
-                
-                exportText += `課程名稱: ${c.name}\n`;
-                exportText += `  - 收費方式: ${typeText} (${rateText})\n`;
-                exportText += `  - 上課時段: ${scheduleText}\n`;
-                exportText += '---------------------------------\n';
-            });
-            
-            // 使用 modal 讓使用者複製內容
-            const modalHtml = `
-                <div id="export-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50">
-                    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6">
-                        <h3 class="text-xl font-bold mb-4 text-gray-800">匯出課表</h3>
-                        <p class="mb-3 text-gray-600">請複製以下內容：</p>
-                        
-                        <textarea id="timetableText" rows="10" readonly class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm">${exportText}</textarea>
-                        
-                        <div class="pt-4 flex justify-end space-x-3">
-                            <button type="button" onclick="document.getElementById('export-modal').remove();" class="btn-secondary">
-                                關閉
-                            </button>
-                            <button type="button" onclick="copyTimetableText()" class="btn-primary">
-                                複製到剪貼簿
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.getElementById('app').insertAdjacentHTML('beforeend', modalHtml);
-            
-            // 嘗試選取文本
-            document.getElementById('timetableText').select();
-        };
-
-        // 複製文本輔助功能
-        window.copyTimetableText = () => {
-            const textarea = document.getElementById('timetableText');
-            // document.execCommand('copy') is used as clipboard API may be blocked in iframe
-            textarea.select();
-            document.execCommand('copy');
-            state.message = '課表內容已複製到剪貼簿！';
-            document.getElementById('export-modal').remove();
-            render();
-        }
-
-        // --- 資料操作與邏輯 (略，僅初始化數據有變動) ---
-
-        // 費用計算邏輯
-        const calculateFees = (studentId) => {
-            const enrolledClasses = window.data.enrollments[studentId] || [];
-            let totalFee = 0;
-            const breakdown = {};
-            const currentDate = state.selectedDate; 
-
-            enrolledClasses.forEach(classId => {
-                const course = window.data.classes.find(c => c.id === classId);
-                if (!course) return;
-
-                if (course.billingType === 'per-session') {
-                    // 按期收費：檢查當日是否有上課記錄
-                    const recordKey = `${studentId}_${classId}_${currentDate}`;
-                    const isPresent = window.data.records[recordKey] === true;
-                    
-                    const fee = isPresent ? course.rate : 0;
-                    totalFee += fee;
-                    breakdown[course.name] = { type: 'per-session', fee, present: isPresent };
-
-                } else if (course.billingType === 'monthly') {
-                    // 按月收費：保留此邏輯，但由於初始課程已全部調整為 per-session，此處目前不會觸發
-                    const fee = course.rate;
-                    totalFee += fee;
-                    breakdown[course.name] = { type: 'monthly', fee };
-                }
-            });
-
-            return { total: totalFee, breakdown };
-        };
-
-
-        // 初始化 Firebase Auth & Listener (已修正)
-        const initializeAuthAndListeners = () => {
-            if (!window.auth || !window.db) {
-                // 如果沒有 Firebase 實例，onAuthStateChanged 會出錯，故提前返回。
-                return;
-            }
-
-            onAuthStateChanged(window.auth, async (user) => {
-                if (user) {
-                    currentUserId = user.uid;
-                    state.userIdDisplay = user.uid;
-                    attendanceCollectionPath = `artifacts/${appId}/users/${currentUserId}/attendance_tracker`;
-                    
-                    try { // <--- 新增 Try/Catch 確保資料初始化失敗時解除鎖定
-                        // 確保初始化數據
-                        await initializeDataStructure();
-                        
-                        // 訂閱數據
-                        startDataListener();
-                    } catch (e) {
-                        console.error("Firebase data initialization failed:", e);
-                        state.loading = false; // 如果數據初始化或監聽失敗，解除載入鎖定
-                    }
-
-                } else {
-                    // 匿名登入
-                    try {
-                         // 使用 __initial_auth_token 進行自定義登入或匿名登入
-                        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(window.auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(window.auth);
-                        }
-                    } catch (error) {
-                        console.error("Firebase Auth Error:", error);
-                        state.loading = false;
-                    }
-                }
-                isAuthReady = true;
-                render();
-            });
-        };
-
-        const initializeDataStructure = async () => {
-            if (!window.db || !attendanceCollectionPath) return;
-
-            const configRef = doc(window.db, attendanceCollectionPath, 'config');
-            
-            try {
-                // 使用 transaction 確保原子性，並檢查是否已存在預設課程
-                await runTransaction(window.db, async (transaction) => {
-                    const configDoc = await transaction.get(configRef);
-                    if (!configDoc.exists()) {
-                        console.log("Setting initial configuration data.");
-                        // 初始課程資料：根據用戶最新需求更新費率和計費方式
-                        const initialClasses = [
-                            // 美術: 3500 / 11 節 ≈ 318
-                            { id: 'art', name: '美術', billingType: 'per-session', rate: 318, schedule: [] },
-                            // 立體造型: 3500 / 8 節 = 437.5 (取 438)
-                            { id: '3d', name: '立體造型', billingType: 'per-session', rate: 438, schedule: [] },
-                            // 美語繪本: 1000 / 8 堂 = 125
-                            { id: 'english', name: '美語繪本', billingType: 'per-session', rate: 125, schedule: [] },
-                            // 舞蹈: 175/節，改為按期收費
-                            { id: 'dance', name: '舞蹈', billingType: 'per-session', rate: 175, schedule: [] }
-                        ];
-
-                        transaction.set(configRef, { 
-                            classes: initialClasses,
-                            students: [],
-                            enrollments: {}
-                        });
-                    }
-                });
-            } catch (e) {
-                console.error("Transaction failed: ", e);
-            }
-        };
-
-
-        const startDataListener = () => {
-            if (unsubscribe) unsubscribe();
-            if (!window.db || !attendanceCollectionPath) return;
-
-            // 訂閱 Config, Students, and Enrollments (放在一個文件)
-            const configRef = doc(window.db, attendanceCollectionPath, 'config');
-            unsubscribe = onSnapshot(configRef, (doc) => {
-                if (doc.exists()) {
-                    const data = doc.data();
-                    window.data.classes = data.classes || [];
-                    window.data.students = data.students || [];
-                    window.data.enrollments = data.enrollments || {};
-                }
-                state.loading = false;
-                render();
-            }, (error) => {
-                console.error("Config Snapshot Error:", error);
-                state.loading = false; // <--- 即使監聽失敗，也必須解除載入鎖定
-                render();
-            });
-
-            // 訂閱 Attendance Records (單獨的文件，根據日期範圍優化查詢)
-            // 由於 onSnapshot 查詢限制，這裡使用簡單的 collection 查詢
-            const recordsQuery = query(collection(window.db, attendanceCollectionPath, 'records'));
-            onSnapshot(recordsQuery, (snapshot) => {
-                 window.data.records = {};
-                 snapshot.forEach(doc => {
-                     const rec = doc.data();
-                     const key = `${rec.studentId}_${rec.classId}_${rec.date}`;
-                     window.data.records[key] = rec.present;
-                 });
-                 render();
-            }, (error) => {
-                console.error("Records Snapshot Error:", error);
-            });
-        };
-        
-        // --- 全域函數 (供 HTML 呼叫) ---
-
-        window.changeView = (view) => {
-            state.activeView = view;
-            // 每次切換到 Attendance View 都重置日期為今天
-            if (view === 'attendance') {
-                state.selectedDate = new Date().toISOString().substring(0, 10);
-            }
-            render();
-        };
-
-        window.changeAttendanceDate = (date) => {
-            state.selectedDate = date;
-            render();
-        };
-
-
-        // 1. 課程設定處理
-        window.handleClassAdd = async (e) => {
-            e.preventDefault();
-            if (state.loading) return;
-
-            const name = document.getElementById('className').value.trim();
-            const billingType = document.getElementById('billingType').value;
-            const rate = parseInt(document.getElementById('classRate').value, 10);
-            const scheduleInput = document.getElementById('classSchedule').value.trim();
-            // 解析上課時段，以逗號分隔
-            const schedule = scheduleInput ? scheduleInput.split(',').map(s => s.trim()).filter(s => s.length > 0) : [];
-
-            if (!name || !billingType || isNaN(rate) || rate <= 0) {
-                state.message = '請輸入有效的課程資訊和費率！';
-                return render();
-            }
-
-            const newClass = {
-                id: name.toLowerCase().replace(/\s/g, '_') + '_' + Date.now(),
-                name: name,
-                billingType: billingType,
-                rate: rate,
-                schedule: schedule // 新增時段
-            };
-
-            const configRef = doc(window.db, attendanceCollectionPath, 'config');
-            try {
-                // 使用 arrayUnion 將新的課程加入現有的 classes 陣列中
-                await updateDoc(configRef, {
-                    classes: arrayUnion(newClass)
-                });
-                state.message = `成功新增課程: ${name}`;
-                e.target.reset(); // 清空表單
-            } catch (e) {
-                console.error("Error adding class: ", e);
-                state.message = '新增課程失敗！';
-            }
-            render();
-        };
-
-        // 2. 學生管理處理 (略，無變動)
-        window.handleStudentAdd = async (e) => {
-            e.preventDefault();
-            if (state.loading) return;
-
-            const name = document.getElementById('studentName').value.trim();
-            if (!name) {
-                state.message = '請輸入學生姓名！';
-                return render();
-            }
-
-            const newStudent = {
-                id: 'std_' + Date.now(),
-                name: name
-            };
-            
-            const configRef = doc(window.db, attendanceCollectionPath, 'config');
-            try {
-                await updateDoc(configRef, {
-                    students: arrayUnion(newStudent)
-                });
-                state.message = `成功新增學生: ${name}`;
-                e.target.reset(); 
-            } catch (e) {
-                console.error("Error adding student: ", e);
-                state.message = '新增學生失敗！';
-            }
-            render();
-        };
-
-        // 顯示/隱藏報名編輯 modal
-        window.showEnrollmentModal = (studentId, studentName) => {
-            state.editingStudentId = studentId;
-            state.editingStudentName = studentName;
-            render();
-        };
-
-        window.hideEnrollmentModal = () => {
-            state.editingStudentId = null;
-            state.editingStudentName = null;
-            render();
-        };
-
-        // 處理報名更新
-        window.handleEnrollmentUpdate = async (e, studentId) => {
-            e.preventDefault();
-            if (state.loading) return;
-
-            const form = document.getElementById('enrollmentForm');
-            const checkboxes = form.querySelectorAll('input[type="checkbox"]:checked');
-            const newEnrollments = Array.from(checkboxes).map(cb => cb.value);
-
-            const configRef = doc(window.db, attendanceCollectionPath, 'config');
-            try {
-                // 使用 transaction 更新 enrollments map
-                await runTransaction(window.db, async (transaction) => {
-                    const configDoc = await transaction.get(configRef);
-                    if (!configDoc.exists()) throw "Config document does not exist!";
-
-                    const currentEnrollments = configDoc.data().enrollments || {};
-                    currentEnrollments[studentId] = newEnrollments;
-
-                    transaction.update(configRef, {
-                        enrollments: currentEnrollments
-                    });
-                });
-                state.message = `${state.editingStudentName} 的報名課程已更新！`;
-                hideEnrollmentModal();
-            } catch (e) {
-                console.error("Error updating enrollment: ", e);
-                state.message = '更新報名失敗！';
-            }
-            render();
-        };
-
-
-        // 3. 點名記錄處理 (略，無變動)
-        window.toggleAttendance = async (studentId, classId, date) => {
-            if (state.loading) return;
-
-            const key = `${studentId}_${classId}_${date}`;
-            const currentPresent = window.data.records[key] === true;
-            const newPresent = !currentPresent;
-            
-            const recordRef = doc(window.db, attendanceCollectionPath, 'records', key);
-            
-            try {
-                if (newPresent) {
-                    // 新增或更新為出席
-                    await setDoc(recordRef, {
-                        studentId,
-                        classId,
-                        date,
-                        present: true,
-                        timestamp: new Date().toISOString()
-                    });
-                } else {
-                    // 更新為缺席 (或刪除，但為記錄方便，建議設為 false 或刪除，這裡簡單處理為刪除，如果設置為 true/false 則使用 setDoc)
-                    // 這裡我們只記錄 '出席' 的文檔，若改為 '缺席' 則刪除文檔
-                    await deleteDoc(recordRef);
-                }
-                
-                state.message = `${window.data.students.find(s=>s.id===studentId)?.name} 的點名記錄已更新！`;
-                // onSnapshot 會自動更新 window.data.records 和 render()
-
-            } catch (e) {
-                console.error("Error toggling attendance: ", e);
-                state.message = '更新點名失敗！';
-            }
-        };
-
-        // 初始化
-        window.onload = () => {
-            // 由於 Firebase 初始化流程可能因為缺少配置而過早結束，導致 render() 未被呼叫，
-            // 我們在這裡確保 UI 結構至少會顯示出來。
-            if (!window.auth || !window.db) {
-                // 如果 Firebase 配置缺失，手動結束載入狀態並設置提示。
-                state.loading = false;
-                state.userIdDisplay = '離線模式 (無儲存)';
-                // 為了讓課程設定介面能立即顯示，手動填充初始課程資料
-                window.data.classes = [
-                    { id: 'art', name: '美術', billingType: 'per-session', rate: 318, schedule: [] },
-                    { id: '3d', name: '立體造型', billingType: 'per-session', rate: 438, schedule: [] },
-                    { id: 'english', name: '美語繪本', billingType: 'per-session', rate: 125, schedule: [] },
-                    { id: 'dance', name: '舞蹈', billingType: 'per-session', rate: 175, schedule: [] }
-                ];
-            }
-            
-            // 開始認證流程（如果配置存在，它將啟動監聽器並最終再次呼叫 render）。
-            initializeAuthAndListeners();
-
-            // 確保主 UI 結構（包括選單）至少渲染一次。
-            render();
-        };
-
-    </script>
-</head>
-<body class="p-4 md:p-8">
-    <div class="container mx-auto">
-        <h1 class="text-3xl font-extrabold text-indigo-800 mb-6 border-b pb-2">
-            才藝班上課與收費管理系統
+import { ChangeDetectionStrategy, Component, computed, signal, OnInit, effect } from '@angular/core';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, Auth } from 'firebase/auth';
+import { getFirestore, doc, onSnapshot, collection, setDoc, Firestore } from 'firebase/firestore';
+
+// ------------------------------------------------------------------------------------------------
+// 1. Typescript Interfaces for Data Structure (資料結構介面)
+// ------------------------------------------------------------------------------------------------
+
+interface Student {
+  id: string; // 學生 ID (例如: 1, 2, 3)
+  name: string; // 學生姓名
+  level: '小' | '中' | '大'; // 幼兒園分級: 小班, 中班, 大班
+  status: '出席' | '缺席' | '請假' | '未繳費' | '已繳費' | string; // 學生狀態
+}
+
+interface ClassRoster {
+  className: string; // 課程名稱 (例如: 舞蹈, 美語)
+  students: Student[];
+}
+
+// ------------------------------------------------------------------------------------------------
+// 2. Mock Data (模擬數據)
+// ------------------------------------------------------------------------------------------------
+
+const MOCK_CLASSES: ClassRoster[] = [
+  {
+    className: '舞蹈',
+    students: [
+      { id: '1', name: '陳恬恩', level: '中', status: '已繳費' },
+      { id: '2', name: '黃羽萱', level: '中', status: '已繳費' },
+      { id: '3', name: '陳泱合', level: '大', status: '出席' },
+      { id: '4', name: '尤彥程', level: '小', status: '未繳費' },
+      { id: '5', name: '李宥芯', level: '中', status: '請假' },
+    ],
+  },
+  {
+    className: '美語',
+    students: [
+      { id: '1', name: '林侑謙', level: '中', status: '出席' },
+      { id: '2', name: '陳安欣', level: '大', status: '出席' },
+      { id: '3', name: '謝思芹', level: '小', status: '缺席' },
+      { id: '4', name: '張博閔', level: '中', status: '已繳費' },
+      { id: '5', name: '葉宥言', level: '大', status: '出席' },
+    ],
+  },
+  {
+    className: '幼兒美術',
+    students: [
+      { id: '1', name: '王小美', level: '小', status: '已繳費' },
+      { id: '2', name: '李大同', level: '大', status: '未繳費' },
+    ],
+  },
+  {
+    className: '立體造型',
+    students: [
+      { id: '1', name: '陳喬扉', level: '中', status: '出席' },
+      { id: '2', name: '劉品睿', level: '小', status: '請假' },
+    ],
+  },
+];
+
+// ------------------------------------------------------------------------------------------------
+// 3. Main Angular Component (主要 Angular 元件)
+// ------------------------------------------------------------------------------------------------
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  template: `
+    <div class="min-h-screen bg-gray-50 p-4 sm:p-8 font-sans">
+      <header class="mb-8 border-b pb-4">
+        <h1 class="text-3xl font-extrabold text-blue-800 tracking-tight flex items-center">
+          <svg class="w-8 h-8 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.468 9.248 5 7.5 5S4.168 5.468 3 6.253v13C4.168 18.468 5.752 18 7.5 18s3.332.468 4.5 1.253m0-13C13.168 5.468 14.752 5 16.5 5s3.332.468 4.5 1.253v13C19.832 18.468 18.248 18 16.5 18s-3.332.468-4.5 1.253"></path>
+          </svg>
+          才藝班管理系統
         </h1>
-        <div id="app">
-            <!-- 應用程式內容將在此處渲染 -->
+        <p class="text-sm text-gray-500 mt-1">目前使用者 ID: {{ userId() || '未登入' }} <span *ngIf="!userId()" class="ml-2 text-red-500">（正在嘗試登入...）</span></p>
+      </header>
+
+      <!-- Loading and Error States -->
+      <div *ngIf="isInitializing()" class="flex justify-center items-center h-64">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <p class="ml-4 text-lg text-blue-600">系統初始化中...</p>
+      </div>
+
+      <div *ngIf="errorMessage()" class="p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+        <p class="font-bold">發生錯誤！</p>
+        <p>{{ errorMessage() }}</p>
+      </div>
+
+      <!-- Main Content -->
+      <div *ngIf="!isInitializing() && !errorMessage()" class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+        <!-- Sidebar / Class List (側邊欄/課程列表) -->
+        <div class="lg:col-span-1">
+          <div class="bg-white rounded-xl shadow-lg p-4">
+            <h2 class="text-xl font-semibold mb-3 text-gray-700 border-b pb-2">所有課程 ({{ classList().length }})</h2>
+            <ul class="space-y-2">
+              <li *ngFor="let classItem of classList()">
+                <button
+                  (click)="selectClass(classItem.className)"
+                  [class]="(selectedClass()?.className === classItem.className ? 'bg-blue-500 text-white ' : 'bg-gray-100 text-gray-700 hover:bg-blue-100 hover:text-blue-700 ') + 'w-full text-left p-3 rounded-lg transition duration-150 ease-in-out font-medium focus:outline-none focus:ring-2 focus:ring-blue-500'"
+                >
+                  {{ classItem.className }}
+                  <span class="text-xs ml-2 opacity-75">({{ classItem.students.length }} 位學生)</span>
+                </button>
+              </li>
+            </ul>
+          </div>
         </div>
+
+        <!-- Main Dashboard / Roster (主面板/名單) -->
+        <div class="lg:col-span-3">
+          <div *ngIf="selectedClass(); let classData" class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex justify-between items-center mb-6 border-b pb-3">
+              <h2 class="text-2xl font-bold text-gray-800">{{ classData.className }} 課程名單與狀態</h2>
+              <button
+                (click)="saveClassData(classData)"
+                class="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 transition duration-150 focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                儲存所有變更
+              </button>
+            </div>
+
+            <!-- Student Table (學生表格) -->
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-blue-50">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">座號</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">姓名</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">班級</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">目前狀態</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">操作/更新</th>
+                  </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                  <tr *ngFor="let student of classData.students" class="hover:bg-gray-50">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ student.id }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{{ student.name }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                      <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                            [ngClass]="getLevelColor(student.level)">
+                        {{ student.level }}班
+                      </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold"
+                        [ngClass]="getStatusColor(student.status)">
+                      {{ student.status }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <div class="flex space-x-2">
+                        <button (click)="updateStudentStatus(classData.className, student.id, '出席')" class="p-1 text-xs bg-green-100 text-green-800 rounded-md hover:bg-green-200 transition">出席</button>
+                        <button (click)="updateStudentStatus(classData.className, student.id, '缺席')" class="p-1 text-xs bg-red-100 text-red-800 rounded-md hover:bg-red-200 transition">缺席</button>
+                        <button (click)="updateStudentStatus(classData.className, student.id, '已繳費')" class="p-1 text-xs bg-yellow-100 text-yellow-800 rounded-md hover:bg-yellow-200 transition">繳費</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p class="mt-6 text-sm text-gray-500 italic">
+              注意：點擊「出席」、「缺席」或「繳費」按鈕後，請務必點擊上方的「儲存所有變更」按鈕，才能將資料永久儲存至雲端資料庫。
+            </p>
+          </div>
+          <div *ngIf="!selectedClass()" class="p-10 text-center text-gray-500 bg-white rounded-xl shadow-lg">
+            <p class="text-xl font-medium">請從左側選擇一個課程來查看和管理學員名單。</p>
+          </div>
+        </div>
+      </div>
+
     </div>
-</body>
-</html>
+  `,
+  styles: [
+    `
+    /* Custom styles for Tailwind to work within Angular */
+    /* Ensure the app uses a nice, readable font */
+    :host {
+      --tw-ring-offset-shadow: 0 0 #0000;
+      --tw-ring-shadow: 0 0 #0000;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    }
+    .waffle {
+      display: none; /* Hide the imported static table structure if it leaks in */
+    }
+    `
+  ]
+})
+export class App implements OnInit {
+  // ------------------------------------------------------------------------------------------------
+  // 4. Firebase Initialization and State (Firebase 初始化與狀態)
+  // ------------------------------------------------------------------------------------------------
+
+  // Firebase instances
+  private db!: Firestore;
+  private auth!: Auth;
+  private appId: string = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+  // State Signals
+  userId = signal<string | null>(null);
+  isInitializing = signal(true);
+  errorMessage = signal<string | null>(null);
+
+  // Data Signals
+  // The structure of this signal is { [className: string]: Student[] }
+  private _classData = signal<Record<string, ClassRoster>>({});
+  
+  // Publicly accessible computed signals
+  classList = computed(() => Object.values(this._classData()));
+  selectedClassName = signal<string | null>(null);
+  selectedClass = computed(() => {
+    const name = this.selectedClassName();
+    return name ? this._classData()[name] : null;
+  });
+  
+  // ------------------------------------------------------------------------------------------------
+  // 5. Angular Lifecycle and Auth (Angular 生命週期與身份驗證)
+  // ------------------------------------------------------------------------------------------------
+
+  constructor() {
+    // Effect to log auth state changes
+    effect(() => {
+      const id = this.userId();
+      if (this.isInitializing()) {
+        console.log('系統初始化...');
+      } else if (id) {
+        console.log('Firebase 登入成功。使用者 ID:', id);
+      } else {
+        console.error('Firebase 登入失敗或未授權。');
+      }
+    });
+  }
+
+  async ngOnInit() {
+    try {
+      // 1. Initialize Firebase
+      const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+      const app = initializeApp(firebaseConfig);
+      this.db = getFirestore(app);
+      this.auth = getAuth(app);
+
+      // 2. Auth: Sign in using custom token or anonymously
+      const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+      if (token) {
+        await signInWithCustomToken(this.auth, token);
+      } else {
+        await signInAnonymously(this.auth);
+      }
+
+      // 3. Set up Auth State Listener
+      onAuthStateChanged(this.auth, (user) => {
+        if (user) {
+          this.userId.set(user.uid);
+          this.initializeDataAndListeners(user.uid);
+        } else {
+          // Fallback if sign-in fails, but we need an ID for public data path
+          this.userId.set('anonymous');
+          this.initializeDataAndListeners('anonymous');
+        }
+      });
+    } catch (error) {
+      console.error('Firebase 初始化失敗:', error);
+      this.errorMessage.set('Firebase 系統初始化失敗。請檢查設定。');
+      this.isInitializing.set(false);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // 6. Data Fetching and Persistence (數據獲取與持久化)
+  // ------------------------------------------------------------------------------------------------
+
+  private initializeDataAndListeners(userId: string) {
+    const collectionPath = `artifacts/${this.appId}/public/data/class_rosters`;
+    const rosterCollection = collection(this.db, collectionPath);
+
+    // Initial check: If data doesn't exist, seed it with mock data
+    this.seedMockData(rosterCollection);
+
+    // Set up real-time listener (onSnapshot)
+    onSnapshot(rosterCollection, (snapshot) => {
+      const classes: Record<string, ClassRoster> = {};
+      snapshot.docs.forEach(doc => {
+        const data = doc.data() as ClassRoster;
+        classes[data.className] = data;
+      });
+      
+      this._classData.set(classes);
+      
+      // If a class is selected, ensure it's still in the list and update the view
+      const currentSelection = this.selectedClassName();
+      if (currentSelection && !classes[currentSelection]) {
+          this.selectedClassName.set(null);
+      } else if (!currentSelection && Object.keys(classes).length > 0) {
+          // Auto-select the first class if none is selected
+          this.selectedClassName.set(Object.keys(classes)[0]);
+      }
+      
+      this.isInitializing.set(false);
+    }, (error) => {
+      console.error('即時資料監聽失敗:', error);
+      this.errorMessage.set('無法連線到資料庫以獲取即時數據。');
+      this.isInitializing.set(false);
+    });
+  }
+
+  private async seedMockData(rosterCollection: any) {
+    try {
+      // Use setDoc to create/overwrite documents by className
+      for (const mockClass of MOCK_CLASSES) {
+        const docRef = doc(rosterCollection, mockClass.className);
+        // Use setDoc with merge: true to avoid overwriting the whole document if it exists
+        await setDoc(docRef, mockClass, { merge: true });
+      }
+      console.log('模擬數據已初始化或檢查完成。');
+    } catch (e) {
+      console.warn('模擬數據初始化失敗 (可能是權限問題或首次寫入):', e);
+    }
+  }
+  
+  async saveClassData(classData: ClassRoster) {
+    if (!this.userId()) {
+        this.errorMessage.set('錯誤: 尚未登入，無法儲存。');
+        return;
+    }
+    const docRef = doc(this.db, `artifacts/${this.appId}/public/data/class_rosters`, classData.className);
+    try {
+        // We save the entire class roster document
+        await setDoc(docRef, classData);
+        console.log(`課程 ${classData.className} 的數據已成功儲存。`);
+        // Optional: show a temporary success message
+        // This is simplified, in a real app you'd use a signal for transient status
+        alert(`課程 ${classData.className} 的數據已儲存!`); 
+    } catch (e) {
+        console.error(`儲存課程 ${classData.className} 數據失敗:`, e);
+        this.errorMessage.set(`儲存數據時發生錯誤: ${e}`);
+    }
+  }
+
+
+  // ------------------------------------------------------------------------------------------------
+  // 7. UI Interaction and Logic (用戶界面互動與邏輯)
+  // ------------------------------------------------------------------------------------------------
+
+  selectClass(className: string) {
+    this.selectedClassName.set(className);
+    console.log('切換到課程:', className);
+  }
+
+  updateStudentStatus(className: string, studentId: string, newStatus: string) {
+    this._classData.update(currentData => {
+      const classToUpdate = currentData[className];
+      if (classToUpdate) {
+        const studentIndex = classToUpdate.students.findIndex(s => s.id === studentId);
+        if (studentIndex > -1) {
+          // Create a deep copy to ensure immutability and signal update
+          const updatedStudents = [...classToUpdate.students];
+          updatedStudents[studentIndex] = { ...updatedStudents[studentIndex], status: newStatus };
+          
+          const updatedClassData = { ...classToUpdate, students: updatedStudents };
+          
+          return {
+            ...currentData,
+            [className]: updatedClassData
+          };
+        }
+      }
+      return currentData;
+    });
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  // 8. Style/Utility Functions (樣式/輔助函式)
+  // ------------------------------------------------------------------------------------------------
+
+  getStatusColor(status: string): string {
+    switch (status) {
+      case '出席': return 'text-green-600 bg-green-50';
+      case '缺席': return 'text-red-600 bg-red-50';
+      case '請假': return 'text-yellow-600 bg-yellow-50';
+      case '已繳費': return 'text-blue-600 bg-blue-50';
+      case '未繳費': return 'text-orange-600 bg-orange-50';
+      default: return 'text-gray-600 bg-gray-50';
+    }
+  }
+
+  getLevelColor(level: string): string {
+    switch (level) {
+      case '小': return 'bg-pink-100 text-pink-800';
+      case '中': return 'bg-teal-100 text-teal-800';
+      case '大': return 'bg-indigo-100 text-indigo-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  }
+}
