@@ -250,7 +250,7 @@
                 ⚙️ 設定 Firebase 連線
             </h3>
             <p class="text-sm text-slate-500 mb-4">
-                請貼上您的 Firebase Config (JSON 格式)，以啟用雲端同步功能。若清空則恢復為本機模式。
+                請貼上您的 Firebase Config，以啟用雲端同步功能。若清空則恢復為本機模式。
             </p>
             <form id="form-settings" class="space-y-4">
                 <div>
@@ -834,15 +834,29 @@
 
         document.getElementById('form-settings').onsubmit = (e) => {
             e.preventDefault();
-            const configStr = document.getElementById('firebase-config-input').value.trim();
+            let configStr = document.getElementById('firebase-config-input').value.trim();
+            
+            // Intelligence: If user pastes "const firebaseConfig = { ... }", clean it
+            if (configStr.includes('firebaseConfig') || configStr.includes('=')) {
+                const firstBrace = configStr.indexOf('{');
+                const lastBrace = configStr.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1) {
+                    configStr = configStr.substring(firstBrace, lastBrace + 1);
+                }
+            }
+
             if (configStr) {
                 try {
-                    JSON.parse(configStr); // Validate JSON
+                    const parsed = JSON.parse(configStr); // Validate JSON
+                    // Simple check if it looks like firebase config
+                    if (!parsed.apiKey || !parsed.projectId) {
+                        if(!confirm("這看起來不像正確的 Firebase 設定，確定要儲存嗎？")) return;
+                    }
                     localStorage.setItem('firebase_settings_config', configStr);
                     alert("設定已儲存，即將重新整理頁面...");
                     window.location.reload();
                 } catch(e) {
-                    alert("JSON 格式錯誤，請檢查您的設定內容。");
+                    alert("JSON 格式錯誤，請確保您複製的是 { ... } 包裹的內容。");
                 }
             } else {
                 if(confirm("確定要清除設定並恢復本機模式嗎？")) {
