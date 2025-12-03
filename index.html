@@ -250,12 +250,12 @@
                 ⚙️ 設定 Firebase 連線
             </h3>
             <p class="text-sm text-slate-500 mb-4">
-                請貼上您的 Firebase Config，以啟用雲端同步功能。若清空則恢復為本機模式。
+                請直接貼上 Firebase 提供的設定碼 (包含 const firebaseConfig = ... )。
             </p>
             <form id="form-settings" class="space-y-4">
                 <div>
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Firebase Config</label>
-                    <textarea id="firebase-config-input" rows="8" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-slate-700 font-mono text-xs" placeholder='{ "apiKey": "...", "authDomain": "...", ... }'></textarea>
+                    <textarea id="firebase-config-input" rows="8" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-slate-700 font-mono text-xs" placeholder='const firebaseConfig = { ... };'></textarea>
                 </div>
                 <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
                     <button type="button" onclick="window.closeModal('settings-modal')" class="px-5 py-2.5 text-slate-500 hover:bg-slate-100 rounded-xl font-medium">取消</button>
@@ -446,10 +446,6 @@
         // --- 初始化 App ---
         async function initApp() {
             try {
-                // 優先順序:
-                // 1. 環境變數 __firebase_config (Preview Env)
-                // 2. LocalStorage 中的使用者設定 (Deployed Env)
-                
                 let firebaseConfig = {};
                 let isEnvConfig = false;
 
@@ -467,18 +463,33 @@
                     const storedConfig = localStorage.getItem('firebase_settings_config');
                     if (storedConfig) {
                         try {
+                            // Try strict JSON parse first
                             firebaseConfig = JSON.parse(storedConfig);
-                        } catch(e) { console.error("Bad stored config"); }
+                        } catch(e) { 
+                            // Try JS object evaluation if strictly JSON fails
+                            try {
+                                let cleaned = storedConfig.trim();
+                                if (cleaned.includes('=')) {
+                                    cleaned = cleaned.substring(cleaned.indexOf('=') + 1).trim();
+                                }
+                                if (cleaned.endsWith(';')) {
+                                    cleaned = cleaned.slice(0, -1).trim();
+                                }
+                                const fn = new Function(`return ${cleaned}`);
+                                firebaseConfig = fn();
+                            } catch(e2) {
+                                console.error("Bad stored config");
+                                firebaseConfig = {}; // reset to empty to trigger local mode
+                            }
+                        }
                     }
                 }
 
                 // 3. 判斷模式
                 if (Object.keys(firebaseConfig).length === 0) {
-                    // 無設定 -> 本機儲存模式
                     console.log("Starting Local Mode.");
                     startLocalMode();
                 } else {
-                    // 有設定 -> Firebase 模式
                     state.isLocalMode = false;
                     safeSetText('storage-mode-text', "雲端同步模式");
                     const badge = document.getElementById('storage-mode-badge');
@@ -488,7 +499,6 @@
                     db = getFirestore(app);
                     auth = getAuth(app);
 
-                    // 嘗試登入
                     const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                     if (token) {
                         await signInWithCustomToken(auth, token);
@@ -566,7 +576,6 @@
         }
 
         async function seedDataIfNeeded(colRef) {
-            // 這裡為了演示，我們總是嘗試寫入 MOCK，但使用 merge
             for (const c of MOCK_CLASSES) {
                 await setDoc(doc(colRef, c.className), c, { merge: true });
             }
@@ -836,27 +845,39 @@
             e.preventDefault();
             let configStr = document.getElementById('firebase-config-input').value.trim();
             
-            // Intelligence: If user pastes "const firebaseConfig = { ... }", clean it
-            if (configStr.includes('firebaseConfig') || configStr.includes('=')) {
-                const firstBrace = configStr.indexOf('{');
-                const lastBrace = configStr.lastIndexOf('}');
-                if (firstBrace !== -1 && lastBrace !== -1) {
-                    configStr = configStr.substring(firstBrace, lastBrace + 1);
-                }
-            }
-
+            // Robust parsing logic for both JS object literal and JSON
             if (configStr) {
+                let parsedConfig = null;
                 try {
-                    const parsed = JSON.parse(configStr); // Validate JSON
-                    // Simple check if it looks like firebase config
-                    if (!parsed.apiKey || !parsed.projectId) {
-                        if(!confirm("這看起來不像正確的 Firebase 設定，確定要儲存嗎？")) return;
+                    // 1. Try Strict JSON
+                    parsedConfig = JSON.parse(configStr);
+                } catch(e) {
+                    // 2. Try Loose JS Object
+                    try {
+                        let cleaned = configStr;
+                        // Clean "const firebaseConfig =" prefix
+                        if (cleaned.includes('=')) {
+                            cleaned = cleaned.substring(cleaned.indexOf('=') + 1);
+                        }
+                        // Clean trailing semicolon
+                        if (cleaned.trim().endsWith(';')) {
+                            cleaned = cleaned.trim().slice(0, -1);
+                        }
+                        // Use Function constructor to evaluate object literal
+                        const fn = new Function(`return ${cleaned}`);
+                        parsedConfig = fn();
+                    } catch(e2) {
+                        console.error("Parsing failed", e2);
                     }
-                    localStorage.setItem('firebase_settings_config', configStr);
+                }
+
+                if (parsedConfig && typeof parsedConfig === 'object') {
+                    // Save as valid JSON string
+                    localStorage.setItem('firebase_settings_config', JSON.stringify(parsedConfig));
                     alert("設定已儲存，即將重新整理頁面...");
                     window.location.reload();
-                } catch(e) {
-                    alert("JSON 格式錯誤，請確保您複製的是 { ... } 包裹的內容。");
+                } else {
+                    alert("格式錯誤，請確保您複製的是 Firebase Config 物件內容。");
                 }
             } else {
                 if(confirm("確定要清除設定並恢復本機模式嗎？")) {
