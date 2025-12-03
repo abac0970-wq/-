@@ -17,7 +17,7 @@
     <!-- 4. 引入 SortableJS (用於拖曳排序) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 
-    <!-- 5. 引入 Firebase (預備用，若未設定則不會執行) -->
+    <!-- 5. 引入 Firebase (預備用) -->
     <script type="module" src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js"></script>
     <script type="module" src="https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js"></script>
     <script type="module" src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js"></script>
@@ -131,12 +131,16 @@
                         <span class="bg-brand-500 text-white rounded-lg p-1.5 text-xl shadow-lg shadow-brand-500/30">📅</span> 
                         才藝班管理系統 <span class="text-slate-400 font-light text-xl">Pro</span>
                     </h1>
-                    <p class="text-slate-500 text-sm mt-2 font-medium tracking-wide">
-                        <span id="storage-mode-badge" class="inline-block w-2 h-2 rounded-full bg-green-500 mr-1"></span>
+                    <p class="text-slate-500 text-sm mt-2 font-medium tracking-wide flex items-center gap-2">
+                        <span id="storage-mode-badge" class="inline-block w-2 h-2 rounded-full bg-green-500"></span>
                         <span id="storage-mode-text">本機儲存模式</span>
                     </p>
                 </div>
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <button onclick="window.openSettingsModal()" class="flex items-center justify-center w-10 h-10 bg-white text-slate-500 border border-slate-300 hover:bg-slate-50 hover:text-slate-900 rounded-xl font-medium shadow-sm transition-all active:scale-95" title="設定 Firebase">
+                        ⚙️
+                    </button>
+
                     <button id="export-btn" class="flex items-center gap-2 bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 hover:text-slate-900 px-4 py-2.5 rounded-xl font-medium shadow-sm transition-all active:scale-95">
                         <span class="text-lg leading-none">📊</span> 匯出 Excel
                     </button>
@@ -238,6 +242,28 @@
     </div>
 
     <!-- Modals (彈窗) -->
+
+    <!-- 設定 Firebase Modal -->
+    <div id="settings-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop fade-in">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8 m-4 transform transition-all scale-100">
+            <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+                ⚙️ 設定 Firebase 連線
+            </h3>
+            <p class="text-sm text-slate-500 mb-4">
+                請貼上您的 Firebase Config (JSON 格式)，以啟用雲端同步功能。若清空則恢復為本機模式。
+            </p>
+            <form id="form-settings" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Firebase Config</label>
+                    <textarea id="firebase-config-input" rows="8" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-slate-700 font-mono text-xs" placeholder='{ "apiKey": "...", "authDomain": "...", ... }'></textarea>
+                </div>
+                <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" onclick="window.closeModal('settings-modal')" class="px-5 py-2.5 text-slate-500 hover:bg-slate-100 rounded-xl font-medium">取消</button>
+                    <button type="submit" class="px-6 py-2.5 bg-brand-600 text-white rounded-xl hover:bg-brand-700 font-medium shadow-lg transition-all hover:-translate-y-0.5">儲存並重整</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- 新增/編輯 課程 Modal -->
     <div id="class-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop fade-in">
@@ -364,12 +390,6 @@
 
         // --- 設定與狀態 ---
         
-        // ⚠️【Netlify 部署請注意】：
-        // 如果您想要使用雲端同步功能，請到 Firebase Console 建立專案，
-        // 並將您的設定物件貼在下方 firebaseConfig 變數中。
-        // 如果保留為空物件 {}，系統將自動切換為「本機儲存模式 (Local Storage)」。
-        const USER_FIREBASE_CONFIG = {}; 
-
         let db, auth;
         let currentUser = null;
         let appId = 'default-app-id';
@@ -379,7 +399,7 @@
             classes: {},      // 儲存所有班級資料
             selectedClass: null,
             loading: true,
-            isLocalMode: true // 預設為 true，若偵測到 Config 則轉 false
+            isLocalMode: true // 預設為 true
         };
 
         // 模擬資料 (Mock Data)
@@ -426,20 +446,36 @@
         // --- 初始化 App ---
         async function initApp() {
             try {
-                // 1. 檢查是否有來自預覽環境的 Config
-                let firebaseConfig = USER_FIREBASE_CONFIG;
+                // 優先順序:
+                // 1. 環境變數 __firebase_config (Preview Env)
+                // 2. LocalStorage 中的使用者設定 (Deployed Env)
+                
+                let firebaseConfig = {};
+                let isEnvConfig = false;
+
+                // 1. Check Env Config
                 if (typeof __firebase_config !== 'undefined') {
-                    // 如果在 Immersive 環境中，優先使用注入的 Config
                     try {
                         firebaseConfig = JSON.parse(__firebase_config);
                         if (typeof __app_id !== 'undefined') appId = __app_id;
-                    } catch(e) { console.warn("Failed to parse injected config"); }
+                        isEnvConfig = true;
+                    } catch(e) { console.warn("Failed to parse env config"); }
                 }
 
-                // 2. 判斷模式
+                // 2. Check LocalStorage Config (override if not in env)
+                if (!isEnvConfig) {
+                    const storedConfig = localStorage.getItem('firebase_settings_config');
+                    if (storedConfig) {
+                        try {
+                            firebaseConfig = JSON.parse(storedConfig);
+                        } catch(e) { console.error("Bad stored config"); }
+                    }
+                }
+
+                // 3. 判斷模式
                 if (Object.keys(firebaseConfig).length === 0) {
                     // 無設定 -> 本機儲存模式
-                    console.log("未偵測到 Firebase 設定，啟動本機儲存模式 (Local Mode)。");
+                    console.log("Starting Local Mode.");
                     startLocalMode();
                 } else {
                     // 有設定 -> Firebase 模式
@@ -466,7 +502,6 @@
                             safeSetText('user-display', `ID: ${user.uid.slice(0, 6)}`);
                             startDataSync(); 
                         } else {
-                            // 異常情況
                             currentUser = { uid: 'anonymous' };
                             startDataSync();
                         }
@@ -497,18 +532,7 @@
                 saveToLocalStorage();
             }
 
-            // 更新 UI
             safeSetText('user-display', "本機使用者");
-            
-            // 可選：顯示歡迎 Banner
-            const banner = document.getElementById('system-banner');
-            if (banner) {
-                banner.className = "bg-green-50 border border-green-200 text-green-800 p-4 rounded-xl mb-8 shadow-sm block";
-                safeSetText('banner-title', "👋 歡迎使用 (本機模式)");
-                safeSetHTML('banner-text', "資料將儲存在您的瀏覽器中。如需跨裝置同步，請設定 Firebase。");
-                banner.classList.remove('hidden');
-            }
-
             finishLoading();
         }
 
@@ -537,15 +561,12 @@
                 finishLoading();
             }, (error) => {
                 console.error("Data sync error:", error);
-                // 如果連線失敗，切回本機
                 startLocalMode();
             });
         }
 
         async function seedDataIfNeeded(colRef) {
-            // 簡單檢查，如果是空的才寫入
             // 這裡為了演示，我們總是嘗試寫入 MOCK，但使用 merge
-            // 實際產品可能不需要這步
             for (const c of MOCK_CLASSES) {
                 await setDoc(doc(colRef, c.className), c, { merge: true });
             }
@@ -801,10 +822,62 @@
             }
         };
 
-        // --- 匯出/匯入/Modal (維持原樣) ---
-        // (為了節省篇幅，這部分代碼邏輯與上一版相同，但需確保 saveData 的調用)
-        // ... (Export, Import, Modal Logic) ...
+        // --- Settings / Modal Logic ---
 
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+        
+        window.openSettingsModal = () => {
+            document.getElementById('settings-modal').classList.remove('hidden');
+            const currentConfig = localStorage.getItem('firebase_settings_config') || '';
+            document.getElementById('firebase-config-input').value = currentConfig;
+        };
+
+        document.getElementById('form-settings').onsubmit = (e) => {
+            e.preventDefault();
+            const configStr = document.getElementById('firebase-config-input').value.trim();
+            if (configStr) {
+                try {
+                    JSON.parse(configStr); // Validate JSON
+                    localStorage.setItem('firebase_settings_config', configStr);
+                    alert("設定已儲存，即將重新整理頁面...");
+                    window.location.reload();
+                } catch(e) {
+                    alert("JSON 格式錯誤，請檢查您的設定內容。");
+                }
+            } else {
+                if(confirm("確定要清除設定並恢復本機模式嗎？")) {
+                    localStorage.removeItem('firebase_settings_config');
+                    window.location.reload();
+                }
+            }
+        };
+
+        window.openClassModal = (mode, className = null) => {
+            document.getElementById('class-modal').classList.remove('hidden');
+            const form = document.getElementById('form-class');
+            form.reset();
+            document.querySelectorAll('input[name="weekdays"]').forEach(cb => cb.checked = false);
+            document.getElementById('class-mode').value = mode;
+            if (mode === 'edit' && className) {
+                const cls = state.classes[className];
+                safeSetText('class-modal-title', '✏️ 編輯課程');
+                document.getElementById('class-original-name').value = className;
+                document.getElementById('input-class-name').value = cls.className;
+                document.getElementById('input-fee').value = cls.feeMethod;
+                const parts = cls.schedule.split(' ');
+                if (parts.length > 1) { 
+                    const timePart = parts[parts.length - 1];
+                    if (timePart.includes(':')) document.getElementById('input-time').value = timePart;
+                }
+            } else {
+                safeSetHTML('class-modal-title', '<span class="bg-brand-100 text-brand-600 w-8 h-8 rounded-lg flex items-center justify-center text-sm">＋</span> 建立新課程');
+                document.getElementById('input-time').value = '18:00';
+            }
+        };
+
+        // ... (Remaining logic for modals, export, import is same as before but ensured safe) ...
+        
+        // Export
         document.getElementById('export-btn').onclick = () => {
             if (!state.selectedClass) { alert('請先選擇一個課程'); return; }
             const clsData = state.classes[state.selectedClass];
@@ -831,6 +904,7 @@
             document.body.removeChild(link);
         };
 
+        // Import
         window.triggerImport = () => document.getElementById('import-file-input').click();
         document.getElementById('import-file-input').onchange = (e) => {
             const file = e.target.files[0];
@@ -870,30 +944,7 @@
             reader.readAsArrayBuffer(file);
         };
 
-        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
-        window.openClassModal = (mode, className = null) => {
-            document.getElementById('class-modal').classList.remove('hidden');
-            const form = document.getElementById('form-class');
-            form.reset();
-            document.querySelectorAll('input[name="weekdays"]').forEach(cb => cb.checked = false);
-            document.getElementById('class-mode').value = mode;
-            if (mode === 'edit' && className) {
-                const cls = state.classes[className];
-                safeSetText('class-modal-title', '✏️ 編輯課程');
-                document.getElementById('class-original-name').value = className;
-                document.getElementById('input-class-name').value = cls.className;
-                document.getElementById('input-fee').value = cls.feeMethod;
-                const parts = cls.schedule.split(' ');
-                if (parts.length > 1) { 
-                    const timePart = parts[parts.length - 1];
-                    if (timePart.includes(':')) document.getElementById('input-time').value = timePart;
-                }
-            } else {
-                safeSetHTML('class-modal-title', '<span class="bg-brand-100 text-brand-600 w-8 h-8 rounded-lg flex items-center justify-center text-sm">＋</span> 建立新課程');
-                document.getElementById('input-time').value = '18:00';
-            }
-        };
-
+        // Class Form
         document.getElementById('form-class').onsubmit = async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
