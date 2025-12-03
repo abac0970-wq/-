@@ -287,38 +287,38 @@
                         <!-- Checkboxes for Weekdays -->
                         <div class="flex-shrink-0">
                             <input type="checkbox" name="weekdays" value="1" id="wd-1" class="weekday-checkbox hidden">
-                            <label for="wd-1" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">一</label>
+                            <label for="wd-1" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300 select-none">一</label>
                         </div>
                         <div class="flex-shrink-0">
                             <input type="checkbox" name="weekdays" value="2" id="wd-2" class="weekday-checkbox hidden">
-                            <label for="wd-2" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">二</label>
+                            <label for="wd-2" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300 select-none">二</label>
                         </div>
                         <div class="flex-shrink-0">
                             <input type="checkbox" name="weekdays" value="3" id="wd-3" class="weekday-checkbox hidden">
-                            <label for="wd-3" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">三</label>
+                            <label for="wd-3" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300 select-none">三</label>
                         </div>
                         <div class="flex-shrink-0">
                             <input type="checkbox" name="weekdays" value="4" id="wd-4" class="weekday-checkbox hidden">
-                            <label for="wd-4" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">四</label>
+                            <label for="wd-4" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300 select-none">四</label>
                         </div>
                         <div class="flex-shrink-0">
                             <input type="checkbox" name="weekdays" value="5" id="wd-5" class="weekday-checkbox hidden">
-                            <label for="wd-5" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">五</label>
+                            <label for="wd-5" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300 select-none">五</label>
                         </div>
                         <div class="flex-shrink-0">
                             <input type="checkbox" name="weekdays" value="6" id="wd-6" class="weekday-checkbox hidden">
-                            <label for="wd-6" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">六</label>
+                            <label for="wd-6" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300 select-none">六</label>
                         </div>
                         <div class="flex-shrink-0">
                             <input type="checkbox" name="weekdays" value="0" id="wd-0" class="weekday-checkbox hidden">
-                            <label for="wd-0" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">日</label>
+                            <label for="wd-0" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300 select-none">日</label>
                         </div>
                     </div>
                     
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">第一堂課日期</label>
-                            <input type="date" name="startDate" id="input-start-date" required class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-slate-700 cursor-pointer">
+                            <input type="date" name="startDate" id="input-start-date" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-slate-700 cursor-pointer">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">上課時間</label>
@@ -334,7 +334,7 @@
 
                 <div class="bg-indigo-50 p-4 rounded-xl text-xs text-indigo-700 flex items-start gap-2 mt-2">
                     <span class="text-lg">💡</span>
-                    <span>系統將從「第一堂課日期」開始，依照勾選的星期，自動推算 <b>12 堂課</b> 的日期。</span>
+                    <span>新增課程：請選日期。編輯課程：若不改變日期，請勿操作日期欄位。</span>
                 </div>
 
                 <div class="flex justify-end gap-3 pt-6 border-t border-slate-100 mt-2">
@@ -473,7 +473,7 @@
                                     cleaned = cleaned.substring(cleaned.indexOf('=') + 1).trim();
                                 }
                                 if (cleaned.endsWith(';')) {
-                                    cleaned = cleaned.slice(0, -1).trim();
+                                    cleaned = cleaned.trim().slice(0, -1).trim();
                                 }
                                 const fn = new Function(`return ${cleaned}`);
                                 firebaseConfig = fn();
@@ -845,25 +845,19 @@
             e.preventDefault();
             let configStr = document.getElementById('firebase-config-input').value.trim();
             
-            // Robust parsing logic for both JS object literal and JSON
             if (configStr) {
                 let parsedConfig = null;
                 try {
-                    // 1. Try Strict JSON
                     parsedConfig = JSON.parse(configStr);
                 } catch(e) {
-                    // 2. Try Loose JS Object
                     try {
                         let cleaned = configStr;
-                        // Clean "const firebaseConfig =" prefix
                         if (cleaned.includes('=')) {
                             cleaned = cleaned.substring(cleaned.indexOf('=') + 1);
                         }
-                        // Clean trailing semicolon
                         if (cleaned.trim().endsWith(';')) {
                             cleaned = cleaned.trim().slice(0, -1);
                         }
-                        // Use Function constructor to evaluate object literal
                         const fn = new Function(`return ${cleaned}`);
                         parsedConfig = fn();
                     } catch(e2) {
@@ -872,7 +866,6 @@
                 }
 
                 if (parsedConfig && typeof parsedConfig === 'object') {
-                    // Save as valid JSON string
                     localStorage.setItem('firebase_settings_config', JSON.stringify(parsedConfig));
                     alert("設定已儲存，即將重新整理頁面...");
                     window.location.reload();
@@ -893,25 +886,40 @@
             form.reset();
             document.querySelectorAll('input[name="weekdays"]').forEach(cb => cb.checked = false);
             document.getElementById('class-mode').value = mode;
+            document.getElementById('input-start-date').value = '';
+
             if (mode === 'edit' && className) {
                 const cls = state.classes[className];
                 safeSetText('class-modal-title', '✏️ 編輯課程');
                 document.getElementById('class-original-name').value = className;
                 document.getElementById('input-class-name').value = cls.className;
                 document.getElementById('input-fee').value = cls.feeMethod;
+                
+                // Parse Time
                 const parts = cls.schedule.split(' ');
                 if (parts.length > 1) { 
                     const timePart = parts[parts.length - 1];
                     if (timePart.includes(':')) document.getElementById('input-time').value = timePart;
                 }
+
+                // --- KEY FIX: Parse Weekdays from Schedule String ---
+                // Expected format: "每週二、五 18:00" or "每週五 16:30"
+                const weekMap = { '日': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 };
+                const schedulePart = parts[0]; // "每週二、五"
+                
+                for (const [char, val] of Object.entries(weekMap)) {
+                    if (schedulePart.includes(char)) {
+                        const cb = document.querySelector(`input[name="weekdays"][value="${val}"]`);
+                        if (cb) cb.checked = true;
+                    }
+                }
+
             } else {
                 safeSetHTML('class-modal-title', '<span class="bg-brand-100 text-brand-600 w-8 h-8 rounded-lg flex items-center justify-center text-sm">＋</span> 建立新課程');
                 document.getElementById('input-time').value = '18:00';
             }
         };
 
-        // ... (Remaining logic for modals, export, import is same as before but ensured safe) ...
-        
         // Export
         document.getElementById('export-btn').onclick = () => {
             if (!state.selectedClass) { alert('請先選擇一個課程'); return; }
@@ -1004,9 +1012,21 @@
             } else if (mode === 'edit') {
                 const oldClass = state.classes[originalClassName];
                 dates = oldClass.dates;
-                const parts = oldClass.schedule.split(' ');
-                parts[parts.length - 1] = time;
-                scheduleStr = parts.join(' ');
+                // If user didn't change date but changed time, we need to rebuild scheduleStr
+                const oldParts = oldClass.schedule.split(' ');
+                // Reuse existing weekdays if not changed (though UI now prefills them, so weekdays array should be populated)
+                
+                if (weekdays.length > 0) {
+                     // Rebuild schedule string based on currently checked boxes + new time
+                    const weekNames = ["日", "一", "二", "三", "四", "五", "六"];
+                    weekdays.sort((a,b) => { const map = [7, 1, 2, 3, 4, 5, 6]; return map[a] - map[b]; });
+                    const dayNames = weekdays.map(d => weekNames[d]).join("、");
+                    scheduleStr = `每週${dayNames} ${time}`;
+                } else {
+                    // Fallback to string manipulation if somehow no boxes checked
+                    oldParts[oldParts.length - 1] = time;
+                    scheduleStr = oldParts.join(' ');
+                }
             } else {
                 if(weekdays.length === 0) { alert("請至少選擇一個上課日"); return; }
             }
@@ -1017,7 +1037,14 @@
                 newClass.students = oldClass.students;
                 if (originalClassName !== className) {
                     delete state.classes[originalClassName];
-                    if (!state.isLocalMode) await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, originalClassName));
+                    // Delete old doc
+                    if (!state.isLocalMode) {
+                        try {
+                            await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, originalClassName));
+                        } catch(err) { console.error(err); }
+                    } else {
+                        saveToLocalStorage();
+                    }
                 }
             }
             state.classes[className] = newClass;
@@ -1028,10 +1055,15 @@
             renderGrid(newClass);
         };
 
+        // FIX: Robust Delete
         window.deleteClass = async (className) => {
             if (!confirm(`確定要刪除「${className}」嗎？`)) return;
-            event.stopPropagation();
+            event.stopPropagation(); // Stop bubbling
+            
+            // 1. Remove from local state
             delete state.classes[className];
+            
+            // 2. Clear selection if needed
             if (state.selectedClass === className) {
                 state.selectedClass = null;
                 const gridContainer = document.getElementById('grid-container');
@@ -1039,8 +1071,20 @@
                 if (gridContainer) gridContainer.classList.add('hidden');
                 if (emptyState) emptyState.classList.remove('hidden');
             }
-            if (!state.isLocalMode) await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, className));
-            else saveToLocalStorage();
+            
+            // 3. Persist deletion
+            if (!state.isLocalMode) {
+                try {
+                    await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, className));
+                } catch(e) {
+                    console.error("Delete failed", e);
+                    alert("刪除失敗，請檢查網路連線。");
+                    // Optional: revert local state if needed, but for now we trust the user wants it gone
+                }
+            } else {
+                saveToLocalStorage();
+            }
+            
             renderSidebar();
         };
 
