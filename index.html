@@ -1,397 +1,1016 @@
-import { ChangeDetectionStrategy, Component, computed, signal, OnInit, effect } from '@angular/core';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, Auth } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, collection, setDoc, Firestore } from 'firebase/firestore';
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>才藝班點名管理系統 Pro (Standalone)</title>
+    
+    <!-- 1. 引入 Tailwind CSS (樣式庫) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. 引入 Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 
-// ------------------------------------------------------------------------------------------------
-// 1. Typescript Interfaces for Data Structure (資料結構介面)
-// ------------------------------------------------------------------------------------------------
+    <!-- 3. 引入 SheetJS (用於讀取 Excel) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-interface Student {
-  id: string; // 學生 ID (例如: 1, 2, 3)
-  name: string; // 學生姓名
-  level: '小' | '中' | '大'; // 幼兒園分級: 小班, 中班, 大班
-  status: '出席' | '缺席' | '請假' | '未繳費' | '已繳費' | string; // 學生狀態
-}
+    <!-- 4. 引入 SortableJS (用於拖曳排序) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 
-interface ClassRoster {
-  className: string; // 課程名稱 (例如: 舞蹈, 美語)
-  students: Student[];
-}
+    <!-- 5. 引入 Firebase (預備用，若未設定則不會執行) -->
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js"></script>
 
-// ------------------------------------------------------------------------------------------------
-// 2. Mock Data (模擬數據)
-// ------------------------------------------------------------------------------------------------
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
+                    },
+                    colors: {
+                        slate: {
+                            50: '#f8fafc',
+                            100: '#f1f5f9',
+                            200: '#e2e8f0',
+                            300: '#cbd5e1',
+                            400: '#94a3b8',
+                            500: '#64748b',
+                            600: '#475569',
+                            700: '#334155',
+                            800: '#1e293b',
+                            900: '#0f172a',
+                        },
+                        brand: {
+                            500: '#6366f1', // Indigo
+                            600: '#4f46e5',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
 
-const MOCK_CLASSES: ClassRoster[] = [
-  {
-    className: '舞蹈',
-    students: [
-      { id: '1', name: '陳恬恩', level: '中', status: '已繳費' },
-      { id: '2', name: '黃羽萱', level: '中', status: '已繳費' },
-      { id: '3', name: '陳泱合', level: '大', status: '出席' },
-      { id: '4', name: '尤彥程', level: '小', status: '未繳費' },
-      { id: '5', name: '李宥芯', level: '中', status: '請假' },
-    ],
-  },
-  {
-    className: '美語',
-    students: [
-      { id: '1', name: '林侑謙', level: '中', status: '出席' },
-      { id: '2', name: '陳安欣', level: '大', status: '出席' },
-      { id: '3', name: '謝思芹', level: '小', status: '缺席' },
-      { id: '4', name: '張博閔', level: '中', status: '已繳費' },
-      { id: '5', name: '葉宥言', level: '大', status: '出席' },
-    ],
-  },
-  {
-    className: '幼兒美術',
-    students: [
-      { id: '1', name: '王小美', level: '小', status: '已繳費' },
-      { id: '2', name: '李大同', level: '大', status: '未繳費' },
-    ],
-  },
-  {
-    className: '立體造型',
-    students: [
-      { id: '1', name: '陳喬扉', level: '中', status: '出席' },
-      { id: '2', name: '劉品睿', level: '小', status: '請假' },
-    ],
-  },
-];
+    <style>
+        /* 隱藏捲軸但保留功能 */
+        .no-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .no-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .no-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .no-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* 動畫效果 */
+        .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-// ------------------------------------------------------------------------------------------------
-// 3. Main Angular Component (主要 Angular 元件)
-// ------------------------------------------------------------------------------------------------
+        /* Modal 背景模糊 */
+        .modal-backdrop { background-color: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); }
+        
+        /* 表格列互動 */
+        .table-row-hover:hover td { background-color: #f8fafc; }
+        .sticky-col { position: sticky; z-index: 10; background-color: white; }
+        .table-row-hover:hover .sticky-col { background-color: #f8fafc; }
+        
+        /* 統計列樣式 */
+        .summary-row td { background-color: #f1f5f9; font-weight: 600; color: #475569; }
+        .summary-row .sticky-col { background-color: #f1f5f9; }
 
-@Component({
-  selector: 'app-root',
-  standalone: true,
-  template: `
-    <div class="min-h-screen bg-gray-50 p-4 sm:p-8 font-sans">
-      <header class="mb-8 border-b pb-4">
-        <h1 class="text-3xl font-extrabold text-blue-800 tracking-tight flex items-center">
-          <svg class="w-8 h-8 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.468 9.248 5 7.5 5S4.168 5.468 3 6.253v13C4.168 18.468 5.752 18 7.5 18s3.332.468 4.5 1.253m0-13C13.168 5.468 14.752 5 16.5 5s3.332.468 4.5 1.253v13C19.832 18.468 18.248 18 16.5 18s-3.332.468-4.5 1.253"></path>
-          </svg>
-          才藝班管理系統
-        </h1>
-        <p class="text-sm text-gray-500 mt-1">目前使用者 ID: {{ userId() || '未登入' }} <span *ngIf="!userId()" class="ml-2 text-red-500">（正在嘗試登入...）</span></p>
-      </header>
+        /* Action Buttons Visibility */
+        .group:hover .action-buttons { opacity: 1; }
 
-      <!-- Loading and Error States -->
-      <div *ngIf="isInitializing()" class="flex justify-center items-center h-64">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        <p class="ml-4 text-lg text-blue-600">系統初始化中...</p>
-      </div>
+        /* Checkbox Custom Style */
+        .weekday-checkbox:checked + label {
+            background-color: #4f46e5;
+            color: white;
+            border-color: #4f46e5;
+        }
 
-      <div *ngIf="errorMessage()" class="p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
-        <p class="font-bold">發生錯誤！</p>
-        <p>{{ errorMessage() }}</p>
-      </div>
+        /* Sortable Styles */
+        .sortable-ghost { opacity: 0.4; background-color: #e2e8f0; }
+        .sortable-drag { cursor: grabbing; background-color: #fff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+        .drag-handle { cursor: grab; color: #cbd5e1; transition: color 0.2s; }
+        .drag-handle:hover { color: #64748b; }
+        .group:hover .drag-handle { opacity: 1; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen p-4 sm:p-8 antialiased selection:bg-brand-500 selection:text-white">
 
-      <!-- Main Content -->
-      <div *ngIf="!isInitializing() && !errorMessage()" class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <!-- 隱藏的檔案輸入框 (用於匯入) -->
+    <input type="file" id="import-file-input" accept=".xlsx, .xls, .csv" class="hidden">
 
-        <!-- Sidebar / Class List (側邊欄/課程列表) -->
-        <div class="lg:col-span-1">
-          <div class="bg-white rounded-xl shadow-lg p-4">
-            <h2 class="text-xl font-semibold mb-3 text-gray-700 border-b pb-2">所有課程 ({{ classList().length }})</h2>
-            <ul class="space-y-2">
-              <li *ngFor="let classItem of classList()">
-                <button
-                  (click)="selectClass(classItem.className)"
-                  [class]="(selectedClass()?.className === classItem.className ? 'bg-blue-500 text-white ' : 'bg-gray-100 text-gray-700 hover:bg-blue-100 hover:text-blue-700 ') + 'w-full text-left p-3 rounded-lg transition duration-150 ease-in-out font-medium focus:outline-none focus:ring-2 focus:ring-blue-500'"
-                >
-                  {{ classItem.className }}
-                  <span class="text-xs ml-2 opacity-75">({{ classItem.students.length }} 位學生)</span>
-                </button>
-              </li>
-            </ul>
-          </div>
+    <!-- 應用程式容器 -->
+    <div id="app" class="max-w-[1600px] mx-auto fade-in">
+        
+        <!-- 載入中畫面 -->
+        <div id="loading-screen" class="flex flex-col items-center justify-center py-40">
+            <div class="relative w-16 h-16">
+                <div class="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
+                <div class="absolute inset-0 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <p class="text-slate-400 font-medium mt-6 tracking-wide">系統載入中...</p>
         </div>
 
-        <!-- Main Dashboard / Roster (主面板/名單) -->
-        <div class="lg:col-span-3">
-          <div *ngIf="selectedClass(); let classData" class="bg-white rounded-xl shadow-lg p-6">
-            <div class="flex justify-between items-center mb-6 border-b pb-3">
-              <h2 class="text-2xl font-bold text-gray-800">{{ classData.className }} 課程名單與狀態</h2>
-              <button
-                (click)="saveClassData(classData)"
-                class="px-4 py-2 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 transition duration-150 focus:outline-none focus:ring-2 focus:ring-green-500"
-              >
-                儲存所有變更
-              </button>
+        <!-- 系統訊息 Banner -->
+        <div id="system-banner" class="hidden p-4 rounded-xl mb-8 shadow-sm transition-all duration-300 border border-transparent">
+            <div class="flex items-start gap-3">
+                <span class="text-xl">⚠️</span>
+                <div>
+                    <p class="font-bold mb-1" id="banner-title">系統訊息</p>
+                    <p id="banner-text" class="text-sm opacity-90"></p>
+                </div>
             </div>
-
-            <!-- Student Table (學生表格) -->
-            <div class="overflow-x-auto">
-              <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-blue-50">
-                  <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">座號</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">姓名</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">班級</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">目前狀態</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">操作/更新</th>
-                  </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                  <tr *ngFor="let student of classData.students" class="hover:bg-gray-50">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ student.id }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{{ student.name }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
-                      <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                            [ngClass]="getLevelColor(student.level)">
-                        {{ student.level }}班
-                      </span>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold"
-                        [ngClass]="getStatusColor(student.status)">
-                      {{ student.status }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      <div class="flex space-x-2">
-                        <button (click)="updateStudentStatus(classData.className, student.id, '出席')" class="p-1 text-xs bg-green-100 text-green-800 rounded-md hover:bg-green-200 transition">出席</button>
-                        <button (click)="updateStudentStatus(classData.className, student.id, '缺席')" class="p-1 text-xs bg-red-100 text-red-800 rounded-md hover:bg-red-200 transition">缺席</button>
-                        <button (click)="updateStudentStatus(classData.className, student.id, '已繳費')" class="p-1 text-xs bg-yellow-100 text-yellow-800 rounded-md hover:bg-yellow-200 transition">繳費</button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <p class="mt-6 text-sm text-gray-500 italic">
-              注意：點擊「出席」、「缺席」或「繳費」按鈕後，請務必點擊上方的「儲存所有變更」按鈕，才能將資料永久儲存至雲端資料庫。
-            </p>
-          </div>
-          <div *ngIf="!selectedClass()" class="p-10 text-center text-gray-500 bg-white rounded-xl shadow-lg">
-            <p class="text-xl font-medium">請從左側選擇一個課程來查看和管理學員名單。</p>
-          </div>
         </div>
-      </div>
 
+        <!-- 主介面 (預設隱藏) -->
+        <div id="main-interface" class="hidden flex flex-col h-full gap-8">
+            
+            <!-- Header -->
+            <header class="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 pb-2">
+                <div>
+                    <h1 class="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3">
+                        <span class="bg-brand-500 text-white rounded-lg p-1.5 text-xl shadow-lg shadow-brand-500/30">📅</span> 
+                        才藝班管理系統 <span class="text-slate-400 font-light text-xl">Pro</span>
+                    </h1>
+                    <p class="text-slate-500 text-sm mt-2 font-medium tracking-wide">
+                        <span id="storage-mode-badge" class="inline-block w-2 h-2 rounded-full bg-green-500 mr-1"></span>
+                        <span id="storage-mode-text">本機儲存模式</span>
+                    </p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button id="export-btn" class="flex items-center gap-2 bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 hover:text-slate-900 px-4 py-2.5 rounded-xl font-medium shadow-sm transition-all active:scale-95">
+                        <span class="text-lg leading-none">📊</span> 匯出 Excel
+                    </button>
+                    
+                    <button id="save-btn" class="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-xl font-medium shadow-xl shadow-slate-900/10 transition-all hover:-translate-y-0.5 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span>儲存變更</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="flex flex-col lg:flex-row gap-8 h-full items-start">
+                
+                <!-- 左側：課程選單 -->
+                <nav class="lg:w-72 flex-shrink-0 flex flex-col gap-6 w-full">
+                    <div class="bg-white rounded-2xl shadow-[0_2px_20px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden sticky top-6">
+                        <div class="bg-white px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+                            <span class="font-bold text-slate-700">課程列表</span>
+                            <span class="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-md" id="class-count-badge">0</span>
+                        </div>
+                        <div id="class-list" class="flex flex-col max-h-[60vh] overflow-y-auto no-scrollbar p-2 gap-1">
+                            <!-- 課程列表將由 JS 動態生成 -->
+                        </div>
+                        <div class="p-4 border-t border-slate-50 bg-slate-50/50">
+                            <button onclick="window.openClassModal('add')" class="w-full group flex justify-center items-center gap-2 py-3 bg-white hover:bg-brand-50 text-slate-600 hover:text-brand-600 rounded-xl transition-all text-sm font-semibold border border-dashed border-slate-300 hover:border-brand-300 shadow-sm">
+                                <span class="bg-slate-100 group-hover:bg-brand-100 rounded-md w-5 h-5 flex items-center justify-center text-xs transition-colors">＋</span>
+                                新增課程
+                            </button>
+                        </div>
+                    </div>
+                </nav>
+
+                <!-- 右側：點名表格 -->
+                <main class="flex-1 overflow-hidden min-h-[600px] w-full bg-white rounded-2xl shadow-[0_2px_20px_rgb(0,0,0,0.04)] border border-slate-100 flex flex-col">
+                    <div id="grid-container" class="flex flex-col h-full hidden">
+                        
+                        <!-- Toolbar & Info -->
+                        <div class="px-8 py-6 border-b border-slate-100 bg-white rounded-t-2xl z-20">
+                            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
+                                <div>
+                                    <h2 id="current-class-title" class="text-2xl font-bold text-slate-800 tracking-tight">課程名稱</h2>
+                                    <div class="flex flex-wrap gap-4 mt-3">
+                                        <span id="class-schedule-display" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                            🕒 --
+                                        </span>
+                                        <span id="class-fee-display" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                            💰 --
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="flex gap-3">
+                                    <button onclick="window.triggerImport()" class="flex items-center gap-2 bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-xl shadow-sm transition-all hover:-translate-y-0.5 active:scale-95 text-sm font-medium">
+                                        <span class="text-lg leading-none">📥</span> 匯入名單
+                                    </button>
+                                    <button onclick="window.openStudentModal('add')" class="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-xl shadow-lg shadow-brand-500/20 transition-all hover:-translate-y-0.5 active:scale-95 text-sm font-medium">
+                                        <span class="text-lg leading-none">+</span> 新增學生
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="flex gap-6 text-xs font-medium pt-4 border-t border-slate-100 text-slate-500">
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm"></span> 出席</div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm"></span> 缺席</div>
+                                <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm"></span> 請假</div>
+                            </div>
+                        </div>
+
+                        <!-- 表格區域 -->
+                        <div class="overflow-auto flex-1 no-scrollbar relative">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50 sticky top-0 z-30 shadow-sm">
+                                    <tr id="table-header">
+                                        <!-- JS 生成表頭 -->
+                                    </tr>
+                                </thead>
+                                <tbody id="table-body" class="text-slate-600 text-sm font-light divide-y divide-slate-50">
+                                    <!-- JS 生成內容 -->
+                                </tbody>
+                                <tfoot id="table-footer" class="bg-slate-100 border-t-2 border-slate-200 text-slate-600 text-xs font-bold sticky bottom-0 z-30">
+                                    <!-- JS 生成統計列 -->
+                                </tfoot>
+                            </table>
+                        </div>
+                        
+                        <div class="bg-slate-50 px-8 py-4 text-xs text-slate-400 border-t border-slate-100 flex justify-between items-center rounded-b-2xl">
+                            <span class="flex items-center gap-2"><span class="bg-slate-200 w-4 h-4 rounded text-center leading-4 text-[10px] text-slate-500">?</span> 點擊格子切換狀態</span>
+                            <span id="last-updated" class="font-mono opacity-70">最後更新: 剛剛</span>
+                        </div>
+                    </div>
+
+                    <!-- 空狀態 -->
+                    <div id="empty-state" class="flex flex-col items-center justify-center h-full text-slate-300 py-20">
+                        <div class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6 text-4xl shadow-inner">👋</div>
+                        <p class="text-slate-500 font-medium text-lg">請從左側選擇課程</p>
+                        <p class="text-sm mt-2">開始管理您的學員與出勤紀錄</p>
+                    </div>
+                </main>
+            </div>
+        </div>
     </div>
-  `,
-  styles: [
-    `
-    /* Custom styles for Tailwind to work within Angular */
-    /* Ensure the app uses a nice, readable font */
-    :host {
-      --tw-ring-offset-shadow: 0 0 #0000;
-      --tw-ring-shadow: 0 0 #0000;
-      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    }
-    .waffle {
-      display: none; /* Hide the imported static table structure if it leaks in */
-    }
-    `
-  ]
-})
-export class App implements OnInit {
-  // ------------------------------------------------------------------------------------------------
-  // 4. Firebase Initialization and State (Firebase 初始化與狀態)
-  // ------------------------------------------------------------------------------------------------
 
-  // Firebase instances
-  private db!: Firestore;
-  private auth!: Auth;
-  private appId: string = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    <!-- Modals (彈窗) -->
 
-  // State Signals
-  userId = signal<string | null>(null);
-  isInitializing = signal(true);
-  errorMessage = signal<string | null>(null);
+    <!-- 新增/編輯 課程 Modal -->
+    <div id="class-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop fade-in">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 m-4 transform transition-all scale-100">
+            <h3 id="class-modal-title" class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <span class="bg-brand-100 text-brand-600 w-8 h-8 rounded-lg flex items-center justify-center text-sm">＋</span>
+                建立新課程
+            </h3>
+            <form id="form-class" class="space-y-5">
+                <input type="hidden" name="mode" id="class-mode" value="add">
+                <input type="hidden" name="originalClassName" id="class-original-name">
+                
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">課程名稱</label>
+                    <input type="text" name="className" id="input-class-name" required placeholder="例如：兒童圍棋 A 班" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white transition-all outline-none text-slate-700 placeholder:text-slate-400">
+                </div>
+                
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">上課日期設定 (可複選)</label>
+                    <div class="flex gap-2 mb-3 overflow-x-auto pb-1 no-scrollbar">
+                        <!-- Checkboxes for Weekdays -->
+                        <div class="flex-shrink-0">
+                            <input type="checkbox" name="weekdays" value="1" id="wd-1" class="weekday-checkbox hidden">
+                            <label for="wd-1" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">一</label>
+                        </div>
+                        <div class="flex-shrink-0">
+                            <input type="checkbox" name="weekdays" value="2" id="wd-2" class="weekday-checkbox hidden">
+                            <label for="wd-2" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">二</label>
+                        </div>
+                        <div class="flex-shrink-0">
+                            <input type="checkbox" name="weekdays" value="3" id="wd-3" class="weekday-checkbox hidden">
+                            <label for="wd-3" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">三</label>
+                        </div>
+                        <div class="flex-shrink-0">
+                            <input type="checkbox" name="weekdays" value="4" id="wd-4" class="weekday-checkbox hidden">
+                            <label for="wd-4" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">四</label>
+                        </div>
+                        <div class="flex-shrink-0">
+                            <input type="checkbox" name="weekdays" value="5" id="wd-5" class="weekday-checkbox hidden">
+                            <label for="wd-5" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">五</label>
+                        </div>
+                        <div class="flex-shrink-0">
+                            <input type="checkbox" name="weekdays" value="6" id="wd-6" class="weekday-checkbox hidden">
+                            <label for="wd-6" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">六</label>
+                        </div>
+                        <div class="flex-shrink-0">
+                            <input type="checkbox" name="weekdays" value="0" id="wd-0" class="weekday-checkbox hidden">
+                            <label for="wd-0" class="block w-10 h-10 leading-10 text-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold cursor-pointer transition-all hover:border-brand-300">日</label>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">第一堂課日期</label>
+                            <input type="date" name="startDate" id="input-start-date" required class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-slate-700 cursor-pointer">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">上課時間</label>
+                            <input type="time" name="time" id="input-time" required value="18:00" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-slate-700 cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">老師收費方式</label>
+                    <input type="text" name="feeMethod" id="input-fee" required placeholder="例如：期繳 3000 元 / 12 堂" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all outline-none text-slate-700 placeholder:text-slate-400">
+                </div>
 
-  // Data Signals
-  // The structure of this signal is { [className: string]: Student[] }
-  private _classData = signal<Record<string, ClassRoster>>({});
-  
-  // Publicly accessible computed signals
-  classList = computed(() => Object.values(this._classData()));
-  selectedClassName = signal<string | null>(null);
-  selectedClass = computed(() => {
-    const name = this.selectedClassName();
-    return name ? this._classData()[name] : null;
-  });
-  
-  // ------------------------------------------------------------------------------------------------
-  // 5. Angular Lifecycle and Auth (Angular 生命週期與身份驗證)
-  // ------------------------------------------------------------------------------------------------
+                <div class="bg-indigo-50 p-4 rounded-xl text-xs text-indigo-700 flex items-start gap-2 mt-2">
+                    <span class="text-lg">💡</span>
+                    <span>系統將從「第一堂課日期」開始，依照勾選的星期，自動推算 <b>12 堂課</b> 的日期。</span>
+                </div>
 
-  constructor() {
-    // Effect to log auth state changes
-    effect(() => {
-      const id = this.userId();
-      if (this.isInitializing()) {
-        console.log('系統初始化...');
-      } else if (id) {
-        console.log('Firebase 登入成功。使用者 ID:', id);
-      } else {
-        console.error('Firebase 登入失敗或未授權。');
-      }
-    });
-  }
+                <div class="flex justify-end gap-3 pt-6 border-t border-slate-100 mt-2">
+                    <button type="button" onclick="window.closeModal('class-modal')" class="px-5 py-2.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 rounded-xl font-medium transition-colors">取消</button>
+                    <button type="submit" class="px-6 py-2.5 bg-brand-600 text-white rounded-xl hover:bg-brand-700 font-medium shadow-lg shadow-brand-500/30 transition-all hover:-translate-y-0.5">確認</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
-  async ngOnInit() {
-    try {
-      // 1. Initialize Firebase
-      const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-      const app = initializeApp(firebaseConfig);
-      this.db = getFirestore(app);
-      this.auth = getAuth(app);
+    <!-- 新增/編輯 學生 Modal -->
+    <div id="student-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop fade-in">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 m-4 transform transition-all scale-100">
+            <h3 id="student-modal-title" class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <span class="bg-emerald-100 text-emerald-600 w-8 h-8 rounded-lg flex items-center justify-center text-sm">＋</span>
+                新增學生
+            </h3>
+            <form id="form-student" class="space-y-5">
+                <input type="hidden" name="mode" id="student-mode" value="add">
+                <input type="hidden" name="studentId" id="student-id">
 
-      // 2. Auth: Sign in using custom token or anonymously
-      const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-      if (token) {
-        await signInWithCustomToken(this.auth, token);
-      } else {
-        await signInAnonymously(this.auth);
-      }
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">學生姓名</label>
+                    <input type="text" name="studentName" id="input-student-name" required placeholder="請輸入姓名" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all outline-none text-slate-700">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">班級 (年級)</label>
+                    <div class="relative">
+                        <select name="level" id="input-student-level" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-700 appearance-none cursor-pointer">
+                            <option value="小">小班</option>
+                            <option value="中" selected>中班</option>
+                            <option value="大">大班</option>
+                            <option value="國小">國小</option>
+                        </select>
+                        <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">▼</div>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 pt-6 border-t border-slate-100 mt-2">
+                    <button type="button" onclick="window.closeModal('student-modal')" class="px-5 py-2.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 rounded-xl font-medium transition-colors">取消</button>
+                    <button type="submit" class="px-6 py-2.5 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-medium shadow-lg shadow-emerald-500/30 transition-all hover:-translate-y-0.5">確認</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
-      // 3. Set up Auth State Listener
-      onAuthStateChanged(this.auth, (user) => {
-        if (user) {
-          this.userId.set(user.uid);
-          this.initializeDataAndListeners(user.uid);
-        } else {
-          // Fallback if sign-in fails, but we need an ID for public data path
-          this.userId.set('anonymous');
-          this.initializeDataAndListeners('anonymous');
+
+    <!-- 3. 應用程式邏輯 (JavaScript Module) -->
+    <script type="module">
+        // 匯入 Firebase SDK (使用 CDN)
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
+        import { getFirestore, doc, onSnapshot, collection, setDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
+
+        // --- 設定與狀態 ---
+        
+        // ⚠️【Netlify 部署請注意】：
+        // 如果您想要使用雲端同步功能，請到 Firebase Console 建立專案，
+        // 並將您的設定物件貼在下方 firebaseConfig 變數中。
+        // 如果保留為空物件 {}，系統將自動切換為「本機儲存模式 (Local Storage)」。
+        const USER_FIREBASE_CONFIG = {}; 
+
+        let db, auth;
+        let currentUser = null;
+        let appId = 'default-app-id';
+        let sortableInstance = null;
+        
+        const state = {
+            classes: {},      // 儲存所有班級資料
+            selectedClass: null,
+            loading: true,
+            isLocalMode: true // 預設為 true，若偵測到 Config 則轉 false
+        };
+
+        // 模擬資料 (Mock Data)
+        const MOCK_CLASSES = [
+            {
+                className: '舞蹈 (週五班)',
+                schedule: '每週五 16:30',
+                feeMethod: '期繳 3000元',
+                dates: ['8/2', '8/9', '8/16', '8/23', '8/30', '9/6', '9/13', '9/20'], 
+                students: [
+                    { id: '1', name: '陳恬恩', level: '中', paid: true, attendance: { '8/2': 'present', '8/9': 'present' } },
+                    { id: '2', name: '黃羽萱', level: '中', paid: true, attendance: { '8/2': 'present', '8/9': 'leave' } },
+                    { id: '3', name: '陳泱合', level: '大', paid: false, attendance: { '8/2': 'absent', '8/9': 'present' } },
+                    { id: '4', name: '尤彥程', level: '小', paid: false, attendance: { '8/2': 'present', '8/9': 'present' } },
+                    { id: '5', name: '李宥芯', level: '國小', paid: true, attendance: {} },
+                ],
+            },
+            {
+                className: '美語 (週二班)',
+                schedule: '每週二 18:00',
+                feeMethod: '月繳 1200元',
+                dates: ['8/6', '8/13', '8/20', '8/27', '9/3', '9/10'], 
+                students: [
+                    { id: '1', name: '林侑謙', level: '中', paid: true, attendance: { '8/6': 'present' } },
+                    { id: '2', name: '陳安欣', level: '大', paid: true, attendance: { '8/6': 'present' } },
+                    { id: '3', name: '謝思芹', level: '小', paid: false, attendance: { '8/6': 'absent' } },
+                ],
+            },
+        ];
+
+        // --- 初始化 App ---
+        async function initApp() {
+            try {
+                // 1. 檢查是否有來自預覽環境的 Config
+                let firebaseConfig = USER_FIREBASE_CONFIG;
+                if (typeof __firebase_config !== 'undefined') {
+                    // 如果在 Immersive 環境中，優先使用注入的 Config
+                    try {
+                        firebaseConfig = JSON.parse(__firebase_config);
+                        if (typeof __app_id !== 'undefined') appId = __app_id;
+                    } catch(e) { console.warn("Failed to parse injected config"); }
+                }
+
+                // 2. 判斷模式
+                if (Object.keys(firebaseConfig).length === 0) {
+                    // 無設定 -> 本機儲存模式
+                    console.log("未偵測到 Firebase 設定，啟動本機儲存模式 (Local Mode)。");
+                    startLocalMode();
+                } else {
+                    // 有設定 -> Firebase 模式
+                    state.isLocalMode = false;
+                    document.getElementById('storage-mode-text').innerText = "雲端同步模式";
+                    document.getElementById('storage-mode-badge').classList.replace('bg-green-500', 'bg-blue-500');
+                    
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+
+                    // 嘗試登入
+                    const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                    if (token) {
+                        await signInWithCustomToken(auth, token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            currentUser = user;
+                            document.getElementById('user-display').innerText = `ID: ${user.uid.slice(0, 6)}`;
+                            startDataSync(); 
+                        } else {
+                            // 異常情況
+                            currentUser = { uid: 'anonymous' };
+                            startDataSync();
+                        }
+                    });
+                }
+
+            } catch (error) {
+                console.error("Initialization failed, falling back to Local Mode:", error);
+                startLocalMode();
+            }
         }
-      });
-    } catch (error) {
-      console.error('Firebase 初始化失敗:', error);
-      this.errorMessage.set('Firebase 系統初始化失敗。請檢查設定。');
-      this.isInitializing.set(false);
-    }
-  }
 
-  // ------------------------------------------------------------------------------------------------
-  // 6. Data Fetching and Persistence (數據獲取與持久化)
-  // ------------------------------------------------------------------------------------------------
+        // --- 本機儲存模式 (Local Storage) ---
+        function startLocalMode() {
+            state.isLocalMode = true;
+            state.loading = false;
+            
+            // 從 LocalStorage 讀取資料
+            const savedData = localStorage.getItem('class_management_data');
+            
+            if (savedData) {
+                state.classes = JSON.parse(savedData);
+            } else {
+                // 如果是第一次使用，載入範例資料並儲存
+                MOCK_CLASSES.forEach(c => {
+                    state.classes[c.className] = JSON.parse(JSON.stringify(c));
+                });
+                saveToLocalStorage();
+            }
 
-  private initializeDataAndListeners(userId: string) {
-    const collectionPath = `artifacts/${this.appId}/public/data/class_rosters`;
-    const rosterCollection = collection(this.db, collectionPath);
+            // 更新 UI
+            document.getElementById('user-display').innerText = "本機使用者";
+            
+            // 可選：顯示歡迎 Banner
+            const banner = document.getElementById('system-banner');
+            banner.className = "bg-green-50 border border-green-200 text-green-800 p-4 rounded-xl mb-8 shadow-sm block";
+            document.getElementById('banner-title').innerText = "👋 歡迎使用 (本機模式)";
+            document.getElementById('banner-text').innerHTML = "資料將儲存在您的瀏覽器中。如需跨裝置同步，請設定 Firebase。";
+            document.getElementById('system-banner').classList.remove('hidden');
 
-    // Initial check: If data doesn't exist, seed it with mock data
-    this.seedMockData(rosterCollection);
-
-    // Set up real-time listener (onSnapshot)
-    onSnapshot(rosterCollection, (snapshot) => {
-      const classes: Record<string, ClassRoster> = {};
-      snapshot.docs.forEach(doc => {
-        const data = doc.data() as ClassRoster;
-        classes[data.className] = data;
-      });
-      
-      this._classData.set(classes);
-      
-      // If a class is selected, ensure it's still in the list and update the view
-      const currentSelection = this.selectedClassName();
-      if (currentSelection && !classes[currentSelection]) {
-          this.selectedClassName.set(null);
-      } else if (!currentSelection && Object.keys(classes).length > 0) {
-          // Auto-select the first class if none is selected
-          this.selectedClassName.set(Object.keys(classes)[0]);
-      }
-      
-      this.isInitializing.set(false);
-    }, (error) => {
-      console.error('即時資料監聽失敗:', error);
-      this.errorMessage.set('無法連線到資料庫以獲取即時數據。');
-      this.isInitializing.set(false);
-    });
-  }
-
-  private async seedMockData(rosterCollection: any) {
-    try {
-      // Use setDoc to create/overwrite documents by className
-      for (const mockClass of MOCK_CLASSES) {
-        const docRef = doc(rosterCollection, mockClass.className);
-        // Use setDoc with merge: true to avoid overwriting the whole document if it exists
-        await setDoc(docRef, mockClass, { merge: true });
-      }
-      console.log('模擬數據已初始化或檢查完成。');
-    } catch (e) {
-      console.warn('模擬數據初始化失敗 (可能是權限問題或首次寫入):', e);
-    }
-  }
-  
-  async saveClassData(classData: ClassRoster) {
-    if (!this.userId()) {
-        this.errorMessage.set('錯誤: 尚未登入，無法儲存。');
-        return;
-    }
-    const docRef = doc(this.db, `artifacts/${this.appId}/public/data/class_rosters`, classData.className);
-    try {
-        // We save the entire class roster document
-        await setDoc(docRef, classData);
-        console.log(`課程 ${classData.className} 的數據已成功儲存。`);
-        // Optional: show a temporary success message
-        // This is simplified, in a real app you'd use a signal for transient status
-        alert(`課程 ${classData.className} 的數據已儲存!`); 
-    } catch (e) {
-        console.error(`儲存課程 ${classData.className} 數據失敗:`, e);
-        this.errorMessage.set(`儲存數據時發生錯誤: ${e}`);
-    }
-  }
-
-
-  // ------------------------------------------------------------------------------------------------
-  // 7. UI Interaction and Logic (用戶界面互動與邏輯)
-  // ------------------------------------------------------------------------------------------------
-
-  selectClass(className: string) {
-    this.selectedClassName.set(className);
-    console.log('切換到課程:', className);
-  }
-
-  updateStudentStatus(className: string, studentId: string, newStatus: string) {
-    this._classData.update(currentData => {
-      const classToUpdate = currentData[className];
-      if (classToUpdate) {
-        const studentIndex = classToUpdate.students.findIndex(s => s.id === studentId);
-        if (studentIndex > -1) {
-          // Create a deep copy to ensure immutability and signal update
-          const updatedStudents = [...classToUpdate.students];
-          updatedStudents[studentIndex] = { ...updatedStudents[studentIndex], status: newStatus };
-          
-          const updatedClassData = { ...classToUpdate, students: updatedStudents };
-          
-          return {
-            ...currentData,
-            [className]: updatedClassData
-          };
+            finishLoading();
         }
-      }
-      return currentData;
-    });
-  }
 
-  // ------------------------------------------------------------------------------------------------
-  // 8. Style/Utility Functions (樣式/輔助函式)
-  // ------------------------------------------------------------------------------------------------
+        function saveToLocalStorage() {
+            localStorage.setItem('class_management_data', JSON.stringify(state.classes));
+        }
 
-  getStatusColor(status: string): string {
-    switch (status) {
-      case '出席': return 'text-green-600 bg-green-50';
-      case '缺席': return 'text-red-600 bg-red-50';
-      case '請假': return 'text-yellow-600 bg-yellow-50';
-      case '已繳費': return 'text-blue-600 bg-blue-50';
-      case '未繳費': return 'text-orange-600 bg-orange-50';
-      default: return 'text-gray-600 bg-gray-50';
-    }
-  }
+        // --- Firebase 同步模式 ---
+        function startDataSync() {
+            const colPath = `artifacts/${appId}/public/data/class_rosters_grid`;
+            const colRef = collection(db, colPath);
 
-  getLevelColor(level: string): string {
-    switch (level) {
-      case '小': return 'bg-pink-100 text-pink-800';
-      case '中': return 'bg-teal-100 text-teal-800';
-      case '大': return 'bg-indigo-100 text-indigo-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  }
-}
+            seedDataIfNeeded(colRef);
+
+            onSnapshot(colRef, (snapshot) => {
+                const newClasses = {};
+                snapshot.forEach(doc => {
+                    newClasses[doc.id] = doc.data();
+                });
+                state.classes = newClasses;
+                
+                if (state.selectedClass && !newClasses[state.selectedClass]) {
+                    state.selectedClass = null;
+                }
+                
+                finishLoading();
+            }, (error) => {
+                console.error("Data sync error:", error);
+                // 如果連線失敗，切回本機
+                startLocalMode();
+            });
+        }
+
+        async function seedDataIfNeeded(colRef) {
+            // 簡單檢查，如果是空的才寫入
+            // 這裡為了演示，我們總是嘗試寫入 MOCK，但使用 merge
+            // 實際產品可能不需要這步
+            for (const c of MOCK_CLASSES) {
+                await setDoc(doc(colRef, c.className), c, { merge: true });
+            }
+        }
+
+        function finishLoading() {
+            document.getElementById('loading-screen').classList.add('hidden');
+            document.getElementById('main-interface').classList.remove('hidden');
+
+            if (!state.selectedClass && Object.keys(state.classes).length > 0) {
+                selectClass(Object.keys(state.classes)[0]);
+            } else if (state.selectedClass) {
+                renderGrid(state.classes[state.selectedClass]);
+            } else {
+                document.getElementById('grid-container').classList.add('hidden');
+                document.getElementById('empty-state').classList.remove('hidden');
+            }
+            renderSidebar();
+        }
+
+        // --- Helper: 日期計算邏輯 ---
+        function calculateClassDates(startDateStr, selectedWeekdays, count = 12) {
+            const results = [];
+            const start = new Date(startDateStr);
+            let current = new Date(start);
+            let safetyCounter = 0;
+            
+            while (results.length < count && safetyCounter < 365) {
+                const day = current.getDay(); 
+                if (selectedWeekdays.includes(day)) {
+                    results.push(`${current.getMonth()+1}/${current.getDate()}`);
+                }
+                current.setDate(current.getDate() + 1);
+                safetyCounter++;
+            }
+            return results;
+        }
+
+        // --- UI 渲染邏輯 ---
+
+        function renderSidebar() {
+            const listEl = document.getElementById('class-list');
+            listEl.innerHTML = ''; 
+            document.getElementById('class-count-badge').innerText = Object.keys(state.classes).length;
+
+            Object.values(state.classes).forEach(cls => {
+                const div = document.createElement('div');
+                const isSelected = state.selectedClass === cls.className;
+                
+                div.className = `w-full px-4 py-3.5 rounded-xl transition-all duration-200 group flex justify-between items-center cursor-pointer ${
+                    isSelected 
+                    ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10' 
+                    : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                }`;
+                
+                div.innerHTML = `
+                    <div class="flex-1 min-w-0 pr-3" onclick="window.selectClass('${cls.className}')">
+                        <div class="font-medium truncate text-sm">${cls.className}</div>
+                        <div class="text-xs mt-1 ${isSelected ? 'text-slate-300' : 'text-slate-400'}">${cls.students.length} 位學生</div>
+                    </div>
+                    <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <button onclick="window.openClassModal('edit', '${cls.className}')" class="p-1 hover:bg-white/20 rounded text-xs" title="編輯">✏️</button>
+                         <button onclick="window.deleteClass('${cls.className}')" class="p-1 hover:bg-red-500/20 hover:text-red-400 rounded text-xs" title="刪除">🗑️</button>
+                    </div>
+                `;
+                
+                listEl.appendChild(div);
+            });
+        }
+
+        function renderGrid(clsData) {
+            if (!clsData) return;
+
+            document.getElementById('current-class-title').innerText = clsData.className;
+            document.getElementById('class-schedule-display').innerHTML = `🕒 ${clsData.schedule || '未設定'}`;
+            document.getElementById('class-fee-display').innerHTML = `💰 ${clsData.feeMethod || '未設定'}`;
+
+            document.getElementById('grid-container').classList.remove('hidden');
+            document.getElementById('empty-state').classList.add('hidden');
+
+            const thead = document.getElementById('table-header');
+            let headerHTML = `
+                <th class="py-4 px-4 text-left font-bold text-xs uppercase tracking-wider text-slate-400 w-16 sticky left-0 bg-slate-50 z-20 border-b border-slate-100">座號</th>
+                <th class="py-4 px-4 text-left font-bold text-xs uppercase tracking-wider text-slate-400 w-40 sticky left-16 bg-slate-50 z-20 border-b border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">姓名 / 操作</th>
+                <th class="py-4 px-4 text-center font-bold text-xs uppercase tracking-wider text-slate-400 w-20 border-b border-slate-100">班別</th>
+                <th class="py-4 px-4 text-center font-bold text-xs uppercase tracking-wider text-slate-400 w-24 border-b border-slate-100">繳費</th>
+            `;
+            
+            clsData.dates.forEach(date => {
+                headerHTML += `
+                    <th class="py-3 px-2 text-center border-b border-slate-100 min-w-[70px]">
+                        <div class="inline-block px-2.5 py-1 rounded-md bg-white border border-slate-100 shadow-sm text-xs font-medium text-slate-600">${date}</div>
+                    </th>
+                `;
+            });
+            thead.innerHTML = headerHTML;
+
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = ''; 
+            
+            const attendanceCounts = {}; 
+            clsData.dates.forEach(d => attendanceCounts[d] = 0);
+
+            clsData.students.forEach((student, index) => {
+                const tr = document.createElement('tr');
+                tr.className = "table-row-hover transition-colors group";
+                tr.setAttribute('data-id', student.id);
+                
+                const levelColors = {
+                    '大': 'bg-indigo-50 text-indigo-600 border border-indigo-100',
+                    '中': 'bg-emerald-50 text-emerald-600 border border-emerald-100',
+                    '小': 'bg-rose-50 text-rose-600 border border-rose-100',
+                    '國小': 'bg-orange-50 text-orange-600 border border-orange-100'
+                };
+                const levelClass = levelColors[student.level] || 'bg-slate-100 text-slate-600';
+
+                const paidClass = student.paid ? 'bg-brand-500' : 'bg-slate-200';
+                const knobClass = student.paid ? 'translate-x-6' : 'translate-x-1';
+                const paidText = student.paid ? '<span class="text-brand-600 font-bold">已繳</span>' : '<span class="text-slate-400">未繳</span>';
+
+                let rowHTML = `
+                    <td class="py-4 px-4 text-left whitespace-nowrap sticky left-0 bg-white z-10 sticky-col font-mono text-slate-400 text-sm border-b border-slate-50">${index + 1}</td>
+                    <td class="py-4 px-4 text-left font-bold text-slate-700 sticky left-16 bg-white z-10 sticky-col shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-b border-slate-50 group">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="drag-handle cursor-grab opacity-0 group-hover:opacity-100 transition-opacity" title="拖曳排序">⋮⋮</span>
+                                <span>${student.name}</span>
+                            </div>
+                            <div class="action-buttons opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                <button onclick="window.openStudentModal('edit', '${student.id}')" class="text-xs text-slate-400 hover:text-brand-600 p-1">✏️</button>
+                                <button onclick="window.deleteStudent('${student.id}')" class="text-xs text-slate-400 hover:text-red-600 p-1">🗑️</button>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="py-4 px-4 text-center border-b border-slate-50">
+                        <span class="px-2.5 py-1 rounded-lg text-xs font-semibold ${levelClass}">${student.level}</span>
+                    </td>
+                    <td class="py-4 px-4 text-center cursor-pointer border-b border-slate-50 group/paid" onclick="window.togglePayment('${student.id}')">
+                         <div class="w-11 h-6 mx-auto rounded-full relative transition-colors duration-200 ease-in-out ${paidClass} shadow-inner">
+                            <div class="absolute w-4 h-4 bg-white rounded-full top-1 transition-transform duration-200 ease-in-out shadow-sm ${knobClass}"></div>
+                         </div>
+                         <div class="text-[10px] mt-1.5 opacity-80 group-hover/paid:opacity-100 transition-opacity">${paidText}</div>
+                    </td>
+                `;
+
+                clsData.dates.forEach(date => {
+                    const status = student.attendance[date] || 'none';
+                    if (status === 'present') attendanceCounts[date]++;
+
+                    let cellContent = '<div class="w-2 h-2 rounded-full bg-slate-100 group-hover:bg-slate-200 transition-colors"></div>'; 
+                    let cellContainerClass = 'hover:bg-slate-50';
+
+                    if (status === 'present') {
+                        cellContent = '<div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm">✓</div>';
+                    } else if (status === 'absent') {
+                        cellContent = '<div class="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shadow-sm">✕</div>';
+                    } else if (status === 'leave') {
+                        cellContent = '<div class="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shadow-sm">○</div>';
+                    }
+
+                    rowHTML += `
+                        <td class="py-3 px-2 text-center border-l border-slate-50 cursor-pointer select-none transition-colors ${cellContainerClass}" 
+                            onclick="window.toggleAttendance('${student.id}', '${date}')">
+                            <div class="flex items-center justify-center transition-transform active:scale-95">
+                                ${cellContent}
+                            </div>
+                        </td>
+                    `;
+                });
+
+                tr.innerHTML = rowHTML;
+                tbody.appendChild(tr);
+            });
+
+            const tfoot = document.getElementById('table-footer');
+            let footerHTML = `
+                <tr class="summary-row">
+                    <td class="py-4 px-4 sticky left-0 z-20 sticky-col border-t border-slate-200" colspan="2">📊 出席統計</td>
+                    <td class="py-4 px-4 border-t border-slate-200" colspan="2"></td>
+            `;
+            
+            clsData.dates.forEach(date => {
+                const count = attendanceCounts[date];
+                footerHTML += `
+                    <td class="py-4 px-2 text-center border-t border-slate-200 border-l border-slate-200 text-slate-600">
+                        ${count} 人
+                    </td>
+                `;
+            });
+            footerHTML += `</tr>`;
+            tfoot.innerHTML = footerHTML;
+
+            if (sortableInstance) sortableInstance.destroy();
+            sortableInstance = new Sortable(tbody, {
+                handle: '.drag-handle',
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                dragClass: 'sortable-drag',
+                onEnd: async function (evt) {
+                    const currentClass = state.classes[state.selectedClass];
+                    const item = currentClass.students.splice(evt.oldIndex, 1)[0];
+                    currentClass.students.splice(evt.newIndex, 0, item);
+                    renderGrid(currentClass);
+                    await saveData(state.selectedClass, currentClass);
+                },
+            });
+        }
+
+        // --- 互動邏輯 ---
+
+        window.selectClass = (className) => {
+            state.selectedClass = className;
+            renderSidebar(); 
+            renderGrid(state.classes[className]);
+        };
+
+        window.togglePayment = (studentId) => {
+            const cls = state.classes[state.selectedClass];
+            const student = cls.students.find(s => s.id === studentId);
+            if (student) {
+                student.paid = !student.paid;
+                renderGrid(cls);
+                saveData(state.selectedClass, cls);
+            }
+        };
+
+        window.toggleAttendance = (studentId, date) => {
+            const cls = state.classes[state.selectedClass];
+            const student = cls.students.find(s => s.id === studentId);
+            if (student) {
+                const current = student.attendance[date] || 'none';
+                let next = 'present';
+                if (current === 'present') next = 'absent';
+                else if (current === 'absent') next = 'leave';
+                else if (current === 'leave') next = 'none';
+                
+                student.attendance[date] = next;
+                renderGrid(cls);
+                saveData(state.selectedClass, cls);
+            }
+        };
+
+        // --- 匯出/匯入/Modal (維持原樣) ---
+        // (為了節省篇幅，這部分代碼邏輯與上一版相同，但需確保 saveData 的調用)
+        // ... (Export, Import, Modal Logic) ...
+
+        document.getElementById('export-btn').onclick = () => {
+            if (!state.selectedClass) { alert('請先選擇一個課程'); return; }
+            const clsData = state.classes[state.selectedClass];
+            let csvContent = "座號,姓名,班級,繳費狀態," + clsData.dates.join(",") + "\n";
+            clsData.students.forEach((student, index) => {
+                let row = [index + 1, student.name, student.level + "班", student.paid ? "已繳" : "未繳"];
+                clsData.dates.forEach(date => {
+                    const status = student.attendance[date];
+                    let statusText = "";
+                    if (status === 'present') statusText = "出席";
+                    else if (status === 'absent') statusText = "缺席";
+                    else if (status === 'leave') statusText = "請假";
+                    row.push(statusText);
+                });
+                csvContent += row.join(",") + "\n";
+            });
+            const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `${clsData.className}_點名表.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        window.triggerImport = () => document.getElementById('import-file-input').click();
+        document.getElementById('import-file-input').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!state.selectedClass) { alert("請先選擇要匯入的班級！"); e.target.value = ''; return; }
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                    if (jsonData.length === 0) { alert("Excel 檔案中沒有資料！"); return; }
+                    const currentClass = state.classes[state.selectedClass];
+                    let addedCount = 0;
+                    jsonData.forEach(row => {
+                        const name = row['姓名'] || row['Name'] || row['name'] || row['學生姓名'];
+                        let level = row['班級'] || row['Level'] || row['level'] || row['年級'] || '中';
+                        if (name) {
+                            if (level.includes('小')) level = '小';
+                            else if (level.includes('大')) level = '大';
+                            else if (level.includes('國小')) level = '國小';
+                            else level = '中';
+                            const newId = Date.now().toString() + Math.floor(Math.random() * 1000);
+                            currentClass.students.push({ id: newId, name: String(name).trim(), level: level, paid: false, attendance: {} });
+                            addedCount++;
+                        }
+                    });
+                    if (addedCount > 0) {
+                        await saveData(state.selectedClass, currentClass);
+                        renderGrid(currentClass);
+                        renderSidebar();
+                        alert(`成功匯入 ${addedCount} 位學生！`);
+                    } else { alert("找不到符合格式的資料，請確認 Excel 包含「姓名」欄位。"); }
+                } catch (error) { console.error("Import error:", error); alert("讀取檔案失敗"); } finally { document.getElementById('import-file-input').value = ''; }
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+        window.openClassModal = (mode, className = null) => {
+            document.getElementById('class-modal').classList.remove('hidden');
+            const form = document.getElementById('form-class');
+            form.reset();
+            document.querySelectorAll('input[name="weekdays"]').forEach(cb => cb.checked = false);
+            document.getElementById('class-mode').value = mode;
+            if (mode === 'edit' && className) {
+                const cls = state.classes[className];
+                document.getElementById('class-modal-title').innerText = '✏️ 編輯課程';
+                document.getElementById('class-original-name').value = className;
+                document.getElementById('input-class-name').value = cls.className;
+                document.getElementById('input-fee').value = cls.feeMethod;
+                const parts = cls.schedule.split(' ');
+                if (parts.length > 1) { 
+                    const timePart = parts[parts.length - 1];
+                    if (timePart.includes(':')) document.getElementById('input-time').value = timePart;
+                }
+            } else {
+                document.getElementById('class-modal-title').innerHTML = '<span class="bg-brand-100 text-brand-600 w-8 h-8 rounded-lg flex items-center justify-center text-sm">＋</span> 建立新課程';
+                document.getElementById('input-time').value = '18:00';
+            }
+        };
+
+        document.getElementById('form-class').onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const mode = formData.get('mode');
+            const className = formData.get('className');
+            const originalClassName = formData.get('originalClassName');
+            const startDateStr = formData.get('startDate');
+            const time = formData.get('time');
+            const feeMethod = formData.get('feeMethod');
+            const weekdays = [];
+            document.querySelectorAll('input[name="weekdays"]:checked').forEach(cb => weekdays.push(parseInt(cb.value)));
+
+            if (!className) return;
+            let dates = [], scheduleStr = "";
+
+            if (startDateStr && weekdays.length > 0) {
+                dates = calculateClassDates(startDateStr, weekdays, 12);
+                const weekNames = ["日", "一", "二", "三", "四", "五", "六"];
+                weekdays.sort((a,b) => { const map = [7, 1, 2, 3, 4, 5, 6]; return map[a] - map[b]; });
+                const dayNames = weekdays.map(d => weekNames[d]).join("、");
+                scheduleStr = `每週${dayNames} ${time}`;
+            } else if (mode === 'edit') {
+                const oldClass = state.classes[originalClassName];
+                dates = oldClass.dates;
+                const parts = oldClass.schedule.split(' ');
+                parts[parts.length - 1] = time;
+                scheduleStr = parts.join(' ');
+            } else {
+                if(weekdays.length === 0) { alert("請至少選擇一個上課日"); return; }
+            }
+
+            const newClass = { className, schedule: scheduleStr, feeMethod, dates, students: [] };
+            if (mode === 'edit') {
+                const oldClass = state.classes[originalClassName];
+                newClass.students = oldClass.students;
+                if (originalClassName !== className) {
+                    delete state.classes[originalClassName];
+                    if (!state.isLocalMode) await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, originalClassName));
+                }
+            }
+            state.classes[className] = newClass;
+            state.selectedClass = className; 
+            await saveData(className, newClass);
+            window.closeModal('class-modal');
+            renderSidebar();
+            renderGrid(newClass);
+        };
+
+        window.deleteClass = async (className) => {
+            if (!confirm(`確定要刪除「${className}」嗎？`)) return;
+            event.stopPropagation();
+            delete state.classes[className];
+            if (state.selectedClass === className) {
+                state.selectedClass = null;
+                document.getElementById('grid-container').classList.add('hidden');
+                document.getElementById('empty-state').classList.remove('hidden');
+            }
+            if (!state.isLocalMode) await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, className));
+            else saveToLocalStorage();
+            renderSidebar();
+        };
+
+        window.openStudentModal = (mode, studentId = null) => {
+            document.getElementById('student-modal').classList.remove('hidden');
+            const form = document.getElementById('form-student');
+            form.reset();
+            document.getElementById('student-mode').value = mode;
+            const currentClass = state.classes[state.selectedClass];
+            if (mode === 'edit' && studentId) {
+                document.getElementById('student-modal-title').innerText = '✏️ 編輯學生';
+                document.getElementById('student-id').value = studentId;
+                const student = currentClass.students.find(s => s.id === studentId);
+                if (student) {
+                    document.getElementById('input-student-name').value = student.name;
+                    document.getElementById('input-student-level').value = student.level;
+                }
+            } else {
+                document.getElementById('student-modal-title').innerHTML = '<span class="bg-emerald-100 text-emerald-600 w-8 h-8 rounded-lg flex items-center justify-center text-sm">＋</span> 新增學生';
+            }
+        };
+
+        document.getElementById('form-student').onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const mode = formData.get('mode');
+            const studentId = formData.get('studentId');
+            const name = formData.get('studentName');
+            const level = formData.get('level');
+            const currentClass = state.classes[state.selectedClass];
+            if (!currentClass) return;
+            if (mode === 'add') {
+                const newId = Date.now().toString() + Math.floor(Math.random() * 1000);
+                currentClass.students.push({ id: newId, name, level, paid: false, attendance: {} });
+            } else {
+                const student = currentClass.students.find(s => s.id === studentId);
+                if (student) { student.name = name; student.level = level; }
+            }
+            await saveData(state.selectedClass, currentClass);
+            window.closeModal('student-modal');
+            renderGrid(currentClass);
+            renderSidebar();
+        };
+
+        window.deleteStudent = async (studentId) => {
+            if (!confirm('確定要移除這位學生嗎？')) return;
+            const currentClass = state.classes[state.selectedClass];
+            currentClass.students = currentClass.students.filter(s => s.id !== studentId);
+            await saveData(state.selectedClass, currentClass);
+            renderGrid(currentClass);
+            renderSidebar();
+        };
+
+        // --- 整合儲存函式 ---
+        async function saveData(docId, data) {
+            if (state.isLocalMode) {
+                saveToLocalStorage();
+                // 模擬網路延遲
+                const btn = document.getElementById('save-btn');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<span>已儲存</span>';
+                setTimeout(() => btn.innerHTML = originalText, 500);
+            } else {
+                try {
+                    const docPath = `artifacts/${appId}/public/data/class_rosters_grid/${docId}`;
+                    await setDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, docId), data);
+                } catch (e) {
+                    console.error("Save error:", e);
+                    alert("雲端儲存失敗，請檢查網路。");
+                }
+            }
+        }
+
+        document.getElementById('save-btn').onclick = async () => {
+            if (!state.selectedClass) return;
+            const btn = document.getElementById('save-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span>儲存中...</span>';
+            btn.disabled = true;
+            await saveData(state.selectedClass, state.classes[state.selectedClass]);
+            btn.innerHTML = '<span>✓ 已儲存</span>';
+            setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 1000);
+        };
+
+        // 啟動 App
+        initApp();
+
+    </script>
+</body>
+</html>
