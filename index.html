@@ -638,18 +638,30 @@
                     : 'bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`;
                 
+                // --- Fix: Use data-attributes for safer event handling ---
                 div.innerHTML = `
-                    <div class="flex-1 min-w-0 pr-3" onclick="window.selectClass('${cls.className}')">
+                    <div class="flex-1 min-w-0 pr-3 js-select-class" data-name="${cls.className.replace(/"/g, '&quot;')}">
                         <div class="font-medium truncate text-sm">${cls.className}</div>
                         <div class="text-xs mt-1 ${isSelected ? 'text-slate-300' : 'text-slate-400'}">${cls.students.length} 位學生</div>
                     </div>
                     <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <button onclick="window.openClassModal('edit', '${cls.className}')" class="p-1 hover:bg-white/20 rounded text-xs" title="編輯">✏️</button>
-                         <button onclick="window.deleteClass('${cls.className}')" class="p-1 hover:bg-red-500/20 hover:text-red-400 rounded text-xs" title="刪除">🗑️</button>
+                         <button class="p-1 hover:bg-white/20 rounded text-xs js-edit-class" data-name="${cls.className.replace(/"/g, '&quot;')}" title="編輯">✏️</button>
+                         <button class="p-1 hover:bg-red-500/20 hover:text-red-400 rounded text-xs js-delete-class" data-name="${cls.className.replace(/"/g, '&quot;')}" title="刪除">🗑️</button>
                     </div>
                 `;
                 
                 listEl.appendChild(div);
+            });
+
+            // Bind events manually to avoid quoting issues
+            listEl.querySelectorAll('.js-select-class').forEach(el => {
+                el.onclick = () => selectClass(el.dataset.name);
+            });
+            listEl.querySelectorAll('.js-edit-class').forEach(el => {
+                el.onclick = () => window.openClassModal('edit', el.dataset.name);
+            });
+            listEl.querySelectorAll('.js-delete-class').forEach(el => {
+                el.onclick = () => window.deleteClass(el.dataset.name);
             });
         }
 
@@ -895,20 +907,19 @@
                 document.getElementById('input-class-name').value = cls.className;
                 document.getElementById('input-fee').value = cls.feeMethod;
                 
-                // Parse Time
                 const parts = cls.schedule.split(' ');
                 if (parts.length > 1) { 
                     const timePart = parts[parts.length - 1];
                     if (timePart.includes(':')) document.getElementById('input-time').value = timePart;
                 }
 
-                // --- KEY FIX: Parse Weekdays from Schedule String ---
-                // Expected format: "每週二、五 18:00" or "每週五 16:30"
+                // --- Fix: Robust Weekday Parsing ---
+                // Search the *entire* schedule string for weekday chars, not just the first part.
                 const weekMap = { '日': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 };
-                const schedulePart = parts[0]; // "每週二、五"
+                const scheduleString = cls.schedule;
                 
                 for (const [char, val] of Object.entries(weekMap)) {
-                    if (schedulePart.includes(char)) {
+                    if (scheduleString.includes(char)) {
                         const cb = document.querySelector(`input[name="weekdays"][value="${val}"]`);
                         if (cb) cb.checked = true;
                     }
@@ -920,7 +931,7 @@
             }
         };
 
-        // Export
+        // ... (Export/Import logic unchanged) ...
         document.getElementById('export-btn').onclick = () => {
             if (!state.selectedClass) { alert('請先選擇一個課程'); return; }
             const clsData = state.classes[state.selectedClass];
@@ -947,7 +958,6 @@
             document.body.removeChild(link);
         };
 
-        // Import
         window.triggerImport = () => document.getElementById('import-file-input').click();
         document.getElementById('import-file-input').onchange = (e) => {
             const file = e.target.files[0];
@@ -1012,20 +1022,16 @@
             } else if (mode === 'edit') {
                 const oldClass = state.classes[originalClassName];
                 dates = oldClass.dates;
-                // If user didn't change date but changed time, we need to rebuild scheduleStr
-                const oldParts = oldClass.schedule.split(' ');
-                // Reuse existing weekdays if not changed (though UI now prefills them, so weekdays array should be populated)
-                
+                const parts = oldClass.schedule.split(' ');
+                // Reuse existing weekdays if not changed
                 if (weekdays.length > 0) {
-                     // Rebuild schedule string based on currently checked boxes + new time
                     const weekNames = ["日", "一", "二", "三", "四", "五", "六"];
                     weekdays.sort((a,b) => { const map = [7, 1, 2, 3, 4, 5, 6]; return map[a] - map[b]; });
                     const dayNames = weekdays.map(d => weekNames[d]).join("、");
                     scheduleStr = `每週${dayNames} ${time}`;
                 } else {
-                    // Fallback to string manipulation if somehow no boxes checked
-                    oldParts[oldParts.length - 1] = time;
-                    scheduleStr = oldParts.join(' ');
+                    parts[parts.length - 1] = time;
+                    scheduleStr = parts.join(' ');
                 }
             } else {
                 if(weekdays.length === 0) { alert("請至少選擇一個上課日"); return; }
@@ -1037,7 +1043,7 @@
                 newClass.students = oldClass.students;
                 if (originalClassName !== className) {
                     delete state.classes[originalClassName];
-                    // Delete old doc
+                    // Delete old doc safely
                     if (!state.isLocalMode) {
                         try {
                             await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, originalClassName));
@@ -1055,15 +1061,15 @@
             renderGrid(newClass);
         };
 
-        // FIX: Robust Delete
+        // --- Fix: Robust Delete Logic ---
         window.deleteClass = async (className) => {
             if (!confirm(`確定要刪除「${className}」嗎？`)) return;
-            event.stopPropagation(); // Stop bubbling
+            // No need for stopPropagation here as we bound it specifically in JS
             
-            // 1. Remove from local state
+            // 1. Remove from local
             delete state.classes[className];
             
-            // 2. Clear selection if needed
+            // 2. Clear UI if needed
             if (state.selectedClass === className) {
                 state.selectedClass = null;
                 const gridContainer = document.getElementById('grid-container');
@@ -1072,14 +1078,13 @@
                 if (emptyState) emptyState.classList.remove('hidden');
             }
             
-            // 3. Persist deletion
+            // 3. Persist
             if (!state.isLocalMode) {
                 try {
                     await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, className));
                 } catch(e) {
                     console.error("Delete failed", e);
-                    alert("刪除失敗，請檢查網路連線。");
-                    // Optional: revert local state if needed, but for now we trust the user wants it gone
+                    alert("雲端刪除失敗，請檢查網路連線。");
                 }
             } else {
                 saveToLocalStorage();
