@@ -82,6 +82,11 @@
         .sortable-drag { cursor: grabbing; background-color: #fff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
         .drag-handle { cursor: grab; color: #cbd5e1; transition: color 0.2s; }
         .drag-handle:hover { color: #64748b; }
+
+        /* Mode Switcher Styles */
+        .mode-tab { @apply px-4 py-2 rounded-lg text-sm font-bold transition-colors cursor-pointer text-center flex-1; }
+        .mode-tab.active { @apply bg-slate-800 text-white shadow-md; }
+        .mode-tab.inactive { @apply text-slate-500 hover:bg-slate-100; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen p-4 sm:p-8 antialiased selection:bg-brand-500 selection:text-white">
@@ -131,9 +136,18 @@
             </header>
 
             <div class="flex flex-col lg:flex-row gap-8 h-full items-start">
+                
+                <!-- 左側選單 -->
                 <nav class="lg:w-72 flex-shrink-0 flex flex-col gap-6 w-full">
                     <div class="bg-white rounded-2xl shadow-[0_2px_20px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden sticky top-6">
-                        <div class="bg-white px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+                        
+                        <!-- 模式切換 Tabs -->
+                        <div class="p-2 bg-white border-b border-slate-100 flex gap-2">
+                            <button id="tab-roster" onclick="window.switchView('roster')" class="mode-tab active">📝 點名</button>
+                            <button id="tab-salary" onclick="window.switchView('salary')" class="mode-tab inactive">💰 薪資</button>
+                        </div>
+
+                        <div class="bg-white px-6 py-4 border-b border-slate-50 flex justify-between items-center">
                             <span class="font-bold text-slate-700">課程列表</span>
                             <span class="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-md" id="class-count-badge">0</span>
                         </div>
@@ -146,8 +160,11 @@
                     </div>
                 </nav>
 
-                <main class="flex-1 overflow-hidden min-h-[600px] w-full bg-white rounded-2xl shadow-[0_2px_20px_rgb(0,0,0,0.04)] border border-slate-100 flex flex-col">
-                    <div id="grid-container" class="flex flex-col h-full hidden">
+                <!-- 右側主內容區 -->
+                <main class="flex-1 w-full flex flex-col min-h-[600px]">
+                    
+                    <!-- 1. 點名表格 (Grid Container) -->
+                    <div id="grid-container" class="bg-white rounded-2xl shadow-[0_2px_20px_rgb(0,0,0,0.04)] border border-slate-100 flex-col h-full hidden">
                         <div class="px-8 py-6 border-b border-slate-100 bg-white rounded-t-2xl z-20">
                             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
                                 <div>
@@ -184,6 +201,59 @@
                             <span id="last-updated" class="font-mono opacity-70">最後更新: 剛剛</span>
                         </div>
                     </div>
+
+                    <!-- 2. 薪資計算 (Salary Container) -->
+                    <div id="salary-container" class="hidden flex flex-col h-full bg-white rounded-2xl shadow-[0_2px_20px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden">
+                        <div class="px-8 py-6 border-b border-slate-100 bg-white">
+                            <div class="flex justify-between items-center mb-6">
+                                <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                                    💰 薪資計算 - <span id="salary-class-title" class="text-brand-600">請選擇課程</span>
+                                </h2>
+                            </div>
+                            
+                            <!-- 薪資設定區 -->
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-5 rounded-xl border border-slate-200">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-2">基本鐘點費 (每堂)</label>
+                                    <div class="relative">
+                                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                        <input type="number" id="salary-base-rate" onchange="window.updateSalaryConfig()" class="w-full pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition-all font-bold text-slate-700" placeholder="0">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 uppercase mb-2">學生人頭費 (每出席一人)</label>
+                                    <div class="relative">
+                                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                        <input type="number" id="salary-head-rate" onchange="window.updateSalaryConfig()" class="w-full pl-8 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition-all font-bold text-slate-700" placeholder="0">
+                                    </div>
+                                </div>
+                                <div class="flex items-end">
+                                    <div class="bg-indigo-600 text-white px-5 py-2 rounded-xl w-full shadow-md flex justify-between items-center">
+                                        <span class="text-xs font-bold uppercase opacity-80">本期總薪資</span>
+                                        <span class="text-2xl font-bold" id="salary-total-display">$0</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex-1 overflow-auto no-scrollbar p-0">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                                    <tr>
+                                        <th class="py-4 px-8 text-xs font-bold text-slate-500 uppercase w-32">日期</th>
+                                        <th class="py-4 px-8 text-xs font-bold text-slate-500 uppercase w-32 text-center">出席人數</th>
+                                        <th class="py-4 px-8 text-xs font-bold text-slate-500 uppercase">當堂薪資計算公式</th>
+                                        <th class="py-4 px-8 text-xs font-bold text-slate-500 uppercase text-right">小計</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="salary-table-body" class="text-slate-600 text-sm divide-y divide-slate-50">
+                                    <!-- Rows generated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 空狀態 -->
                     <div id="empty-state" class="flex flex-col items-center justify-center h-full text-slate-300 py-20">
                         <div class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6 text-4xl shadow-inner">👋</div>
                         <p class="text-slate-500 font-medium text-lg">請從左側選擇課程</p>
@@ -194,7 +264,7 @@
         </div>
     </div>
 
-    <!-- Modals -->
+    <!-- Modals (保持不變) -->
     <div id="settings-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop fade-in">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8 m-4 transform transition-all scale-100">
             <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">⚙️ 設定 Firebase 連線</h3>
@@ -331,12 +401,13 @@
             classes: {},      
             selectedClass: null,
             loading: true,
-            isLocalMode: true 
+            isLocalMode: true,
+            currentView: 'roster' // 'roster' or 'salary'
         };
 
         const MOCK_CLASSES = [
-            { className: '舞蹈 (週五班)', schedule: '每週五 16:30', feeMethod: '期繳 3000元', dates: ['8/2', '8/9', '8/16', '8/23', '8/30', '9/6', '9/13', '9/20'], students: [{ id: '1', name: '陳恬恩', level: '中', paid: true, receiptNo: '#3068', receiptDate: '2023-08-02', attendance: { '8/2': 'present', '8/9': 'present' } }, { id: '2', name: '黃羽萱', level: '中', paid: true, attendance: { '8/2': 'present', '8/9': 'leave' } }, { id: '3', name: '陳泱合', level: '大', paid: false, attendance: { '8/2': 'absent', '8/9': 'present' } }, { id: '4', name: '尤彥程', level: '小', paid: false, attendance: { '8/2': 'present', '8/9': 'present' } }, { id: '5', name: '李宥芯', level: '國小', paid: true, attendance: {} }] },
-            { className: '美語 (週二班)', schedule: '每週二 18:00', feeMethod: '月繳 1200元', dates: ['8/6', '8/13', '8/20', '8/27', '9/3', '9/10'], students: [{ id: '1', name: '林侑謙', level: '中', paid: true, attendance: { '8/6': 'present' } }, { id: '2', name: '陳安欣', level: '大', paid: true, attendance: { '8/6': 'present' } }, { id: '3', name: '謝思芹', level: '小', paid: false, attendance: { '8/6': 'absent' } }] }
+            { className: '舞蹈 (週五班)', schedule: '每週五 16:30', feeMethod: '期繳 3000元', dates: ['8/2', '8/9', '8/16', '8/23', '8/30', '9/6', '9/13', '9/20'], salaryConfig: { baseRate: 1000, headRate: 50 }, students: [{ id: '1', name: '陳恬恩', level: '中', paid: true, receiptNo: '#3068', receiptDate: '2023-08-02', attendance: { '8/2': 'present', '8/9': 'present' } }, { id: '2', name: '黃羽萱', level: '中', paid: true, attendance: { '8/2': 'present', '8/9': 'leave' } }, { id: '3', name: '陳泱合', level: '大', paid: false, attendance: { '8/2': 'absent', '8/9': 'present' } }, { id: '4', name: '尤彥程', level: '小', paid: false, attendance: { '8/2': 'present', '8/9': 'present' } }, { id: '5', name: '李宥芯', level: '國小', paid: true, attendance: {} }] },
+            { className: '美語 (週二班)', schedule: '每週二 18:00', feeMethod: '月繳 1200元', dates: ['8/6', '8/13', '8/20', '8/27', '9/3', '9/10'], salaryConfig: { baseRate: 800, headRate: 100 }, students: [{ id: '1', name: '林侑謙', level: '中', paid: true, attendance: { '8/6': 'present' } }, { id: '2', name: '陳安欣', level: '大', paid: true, attendance: { '8/6': 'present' } }, { id: '3', name: '謝思芹', level: '小', paid: false, attendance: { '8/6': 'absent' } }] }
         ];
 
         function safeSetText(id, text) { const el = document.getElementById(id); if (el) el.innerText = text; }
@@ -425,9 +496,14 @@
             document.getElementById('loading-screen')?.classList.add('hidden');
             document.getElementById('main-interface')?.classList.remove('hidden');
             if (!state.selectedClass && Object.keys(state.classes).length > 0) selectClass(Object.keys(state.classes)[0]);
-            else if (state.selectedClass) renderGrid(state.classes[state.selectedClass]);
+            else if (state.selectedClass) {
+                // Determine which view to render based on current state
+                if (state.currentView === 'salary') renderSalaryView(state.classes[state.selectedClass]);
+                else renderGrid(state.classes[state.selectedClass]);
+            }
             else {
                 document.getElementById('grid-container')?.classList.add('hidden');
+                document.getElementById('salary-container')?.classList.add('hidden');
                 document.getElementById('empty-state')?.classList.remove('hidden');
             }
             renderSidebar();
@@ -446,6 +522,24 @@
             }
             return results;
         }
+
+        // --- View Switching Logic ---
+        window.switchView = (mode) => {
+            state.currentView = mode;
+            // Update tabs UI
+            if (mode === 'roster') {
+                document.getElementById('tab-roster').classList.replace('inactive', 'active');
+                document.getElementById('tab-salary').classList.replace('active', 'inactive');
+            } else {
+                document.getElementById('tab-salary').classList.replace('inactive', 'active');
+                document.getElementById('tab-roster').classList.replace('active', 'inactive');
+            }
+            
+            // Re-render current selection if exists
+            if (state.selectedClass) {
+                selectClass(state.selectedClass);
+            }
+        };
 
         function renderSidebar() {
             const listEl = document.getElementById('class-list');
@@ -480,7 +574,9 @@
             safeSetText('current-class-title', clsData.className);
             safeSetHTML('class-schedule-display', `🕒 ${clsData.schedule || '未設定'}`);
             safeSetHTML('class-fee-display', `💰 ${clsData.feeMethod || '未設定'}`);
+            
             document.getElementById('grid-container')?.classList.remove('hidden');
+            document.getElementById('salary-container')?.classList.add('hidden');
             document.getElementById('empty-state')?.classList.add('hidden');
 
             const thead = document.getElementById('table-header');
@@ -511,7 +607,6 @@
                 const knobClass = student.paid ? 'translate-x-6' : 'translate-x-1';
                 const paidText = student.paid ? '<span class="text-brand-600 font-bold">已繳</span>' : '<span class="text-slate-400">未繳</span>';
                 
-                // Receipt info
                 const receiptInfo = (student.receiptNo || student.receiptDate) 
                     ? `<div class="text-[10px] text-slate-600 font-mono">${student.receiptNo || '-'}</div><div class="text-[9px] text-slate-400">${student.receiptDate || ''}</div>`
                     : '<span class="text-xs text-slate-300">--</span>';
@@ -571,7 +666,77 @@
             });
         }
 
-        window.selectClass = (className) => { state.selectedClass = className; renderSidebar(); renderGrid(state.classes[className]); };
+        // --- NEW: Salary View Rendering ---
+        function renderSalaryView(clsData) {
+            if (!clsData) return;
+            
+            document.getElementById('salary-class-title').innerText = clsData.className;
+            document.getElementById('grid-container')?.classList.add('hidden');
+            document.getElementById('salary-container')?.classList.remove('hidden');
+            document.getElementById('empty-state')?.classList.add('hidden');
+
+            // Populate Config Inputs
+            const config = clsData.salaryConfig || { baseRate: 0, headRate: 0 };
+            document.getElementById('salary-base-rate').value = config.baseRate || '';
+            document.getElementById('salary-head-rate').value = config.headRate || '';
+
+            const tbody = document.getElementById('salary-table-body');
+            tbody.innerHTML = '';
+            
+            let grandTotal = 0;
+
+            clsData.dates.forEach(date => {
+                // Calculate attendance for this date
+                const presentCount = clsData.students.filter(s => s.attendance[date] === 'present').length;
+                
+                // Calculate Pay: Base + (Head * Count)
+                const base = Number(config.baseRate) || 0;
+                const head = Number(config.headRate) || 0;
+                const dailyTotal = base + (head * presentCount);
+                
+                grandTotal += dailyTotal;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="py-4 px-8 border-b border-slate-50 font-mono">${date}</td>
+                    <td class="py-4 px-8 border-b border-slate-50 text-center font-bold text-slate-700">${presentCount} 人</td>
+                    <td class="py-4 px-8 border-b border-slate-50 text-slate-500 text-xs">
+                        $${base} + ($${head} × ${presentCount})
+                    </td>
+                    <td class="py-4 px-8 border-b border-slate-50 text-right font-bold text-indigo-600">
+                        $${dailyTotal.toLocaleString()}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('salary-total-display').innerText = `$${grandTotal.toLocaleString()}`;
+        }
+
+        window.updateSalaryConfig = async () => {
+            const cls = state.classes[state.selectedClass];
+            if(!cls) return;
+            
+            const base = document.getElementById('salary-base-rate').value;
+            const head = document.getElementById('salary-head-rate').value;
+            
+            cls.salaryConfig = {
+                baseRate: base,
+                headRate: head
+            };
+            
+            await saveData(state.selectedClass, cls);
+            renderSalaryView(cls); // Re-calculate immediately
+        };
+
+        window.selectClass = (className) => { 
+            state.selectedClass = className; 
+            renderSidebar(); 
+            // Render based on current view mode
+            if(state.currentView === 'salary') renderSalaryView(state.classes[className]);
+            else renderGrid(state.classes[className]); 
+        };
+
         window.togglePayment = (studentId) => { const cls = state.classes[state.selectedClass]; const s = cls.students.find(s => s.id === studentId); if(s) { s.paid = !s.paid; renderGrid(cls); saveData(state.selectedClass, cls); } };
         window.toggleAttendance = (studentId, date) => {
             const cls = state.classes[state.selectedClass]; const s = cls.students.find(s => s.id === studentId);
@@ -676,10 +841,11 @@
                 }
             } else { if(weekdays.length === 0) { alert("請至少選擇一個上課日"); return; } }
 
-            const newClass = { className, schedule: scheduleStr, feeMethod, dates, students: [] };
+            const newClass = { className, schedule: scheduleStr, feeMethod, dates, students: [], salaryConfig: { baseRate: 0, headRate: 0 } };
             if (mode === 'edit') {
                 const oldClass = state.classes[originalClassName];
                 newClass.students = oldClass.students;
+                newClass.salaryConfig = oldClass.salaryConfig || { baseRate: 0, headRate: 0 }; // Preserve salary config
                 if (originalClassName !== className) {
                     delete state.classes[originalClassName];
                     if (!state.isLocalMode) { try { await deleteDoc(doc(db, `artifacts/${appId}/public/data/class_rosters_grid`, originalClassName)); } catch(err){ console.error(err); }}
@@ -691,7 +857,8 @@
             await saveData(className, newClass);
             window.closeModal('class-modal');
             renderSidebar();
-            renderGrid(newClass);
+            if(state.currentView === 'salary') renderSalaryView(newClass);
+            else renderGrid(newClass);
         };
 
         window.deleteClass = async (className) => {
@@ -700,6 +867,7 @@
             if (state.selectedClass === className) {
                 state.selectedClass = null;
                 document.getElementById('grid-container')?.classList.add('hidden');
+                document.getElementById('salary-container')?.classList.add('hidden');
                 document.getElementById('empty-state')?.classList.remove('hidden');
             }
             if (!state.isLocalMode) {
@@ -748,7 +916,8 @@
             }
             await saveData(state.selectedClass, currentClass);
             window.closeModal('student-modal');
-            renderGrid(currentClass);
+            if(state.currentView === 'salary') renderSalaryView(currentClass);
+            else renderGrid(currentClass);
             renderSidebar();
         };
 
@@ -757,7 +926,8 @@
             const currentClass = state.classes[state.selectedClass];
             currentClass.students = currentClass.students.filter(s => s.id !== studentId);
             await saveData(state.selectedClass, currentClass);
-            renderGrid(currentClass);
+            if(state.currentView === 'salary') renderSalaryView(currentClass);
+            else renderGrid(currentClass);
             renderSidebar();
         };
 
@@ -846,7 +1016,8 @@
                     });
                     if (addedCount > 0) {
                         await saveData(state.selectedClass, currentClass);
-                        renderGrid(currentClass);
+                        if(state.currentView === 'salary') renderSalaryView(currentClass);
+                        else renderGrid(currentClass);
                         renderSidebar();
                         alert(`成功匯入 ${addedCount} 位學生！`);
                     } else { alert("找不到符合格式的資料，請確認 Excel 包含「姓名」欄位。"); }
