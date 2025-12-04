@@ -293,6 +293,30 @@
         </div>
     </div>
 
+    <!-- Receipt Modal -->
+    <div id="receipt-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop fade-in">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 m-4 transform transition-all scale-100">
+            <h3 class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <span>📝 繳費資訊</span>
+            </h3>
+            <form id="form-receipt" class="space-y-5">
+                <input type="hidden" name="receiptStudentId" id="receipt-student-id">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">收據號碼</label>
+                    <input type="text" name="receiptNo" id="input-receipt-no" placeholder="#12345" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-slate-700">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">繳費日期</label>
+                    <input type="date" name="receiptDate" id="input-receipt-date" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 cursor-pointer">
+                </div>
+                <div class="flex justify-end gap-3 pt-6 border-t border-slate-100 mt-2">
+                    <button type="button" onclick="window.closeModal('receipt-modal')" class="px-5 py-2.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 rounded-xl font-medium transition-colors">取消</button>
+                    <button type="submit" class="px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium shadow-lg shadow-blue-500/30 transition-all hover:-translate-y-0.5">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
@@ -311,7 +335,7 @@
         };
 
         const MOCK_CLASSES = [
-            { className: '舞蹈 (週五班)', schedule: '每週五 16:30', feeMethod: '期繳 3000元', dates: ['8/2', '8/9', '8/16', '8/23', '8/30', '9/6', '9/13', '9/20'], students: [{ id: '1', name: '陳恬恩', level: '中', paid: true, attendance: { '8/2': 'present', '8/9': 'present' } }, { id: '2', name: '黃羽萱', level: '中', paid: true, attendance: { '8/2': 'present', '8/9': 'leave' } }, { id: '3', name: '陳泱合', level: '大', paid: false, attendance: { '8/2': 'absent', '8/9': 'present' } }, { id: '4', name: '尤彥程', level: '小', paid: false, attendance: { '8/2': 'present', '8/9': 'present' } }, { id: '5', name: '李宥芯', level: '國小', paid: true, attendance: {} }] },
+            { className: '舞蹈 (週五班)', schedule: '每週五 16:30', feeMethod: '期繳 3000元', dates: ['8/2', '8/9', '8/16', '8/23', '8/30', '9/6', '9/13', '9/20'], students: [{ id: '1', name: '陳恬恩', level: '中', paid: true, receiptNo: '#3068', receiptDate: '2023-08-02', attendance: { '8/2': 'present', '8/9': 'present' } }, { id: '2', name: '黃羽萱', level: '中', paid: true, attendance: { '8/2': 'present', '8/9': 'leave' } }, { id: '3', name: '陳泱合', level: '大', paid: false, attendance: { '8/2': 'absent', '8/9': 'present' } }, { id: '4', name: '尤彥程', level: '小', paid: false, attendance: { '8/2': 'present', '8/9': 'present' } }, { id: '5', name: '李宥芯', level: '國小', paid: true, attendance: {} }] },
             { className: '美語 (週二班)', schedule: '每週二 18:00', feeMethod: '月繳 1200元', dates: ['8/6', '8/13', '8/20', '8/27', '9/3', '9/10'], students: [{ id: '1', name: '林侑謙', level: '中', paid: true, attendance: { '8/6': 'present' } }, { id: '2', name: '陳安欣', level: '大', paid: true, attendance: { '8/6': 'present' } }, { id: '3', name: '謝思芹', level: '小', paid: false, attendance: { '8/6': 'absent' } }] }
         ];
 
@@ -379,7 +403,6 @@
             const colPath = `artifacts/${appId}/public/data/class_rosters_grid`;
             const colRef = collection(db, colPath);
 
-            // FIX: Only seed if collection is absolutely empty to prevent deleted classes from reappearing
             const snapshot = await getDocs(colRef);
             if (snapshot.empty) {
                 await seedDataIfNeeded(colRef);
@@ -467,6 +490,7 @@
                 <th class="py-4 px-4 text-left font-bold text-xs uppercase tracking-wider text-slate-400 w-40 sticky left-16 bg-slate-50 z-20 border-b border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">姓名 / 操作</th>
                 <th class="py-4 px-4 text-center font-bold text-xs uppercase tracking-wider text-slate-400 w-20 border-b border-slate-100">班別</th>
                 <th class="py-4 px-4 text-center font-bold text-xs uppercase tracking-wider text-slate-400 w-24 border-b border-slate-100">繳費</th>
+                <th class="py-4 px-4 text-center font-bold text-xs uppercase tracking-wider text-slate-400 w-28 border-b border-slate-100">收據/日期</th>
             `;
             clsData.dates.forEach(date => { headerHTML += `<th class="py-3 px-2 text-center border-b border-slate-100 min-w-[70px]"><div class="inline-block px-2.5 py-1 rounded-md bg-white border border-slate-100 shadow-sm text-xs font-medium text-slate-600">${date}</div></th>`; });
             thead.innerHTML = headerHTML;
@@ -486,6 +510,11 @@
                 const paidClass = student.paid ? 'bg-brand-500' : 'bg-slate-200';
                 const knobClass = student.paid ? 'translate-x-6' : 'translate-x-1';
                 const paidText = student.paid ? '<span class="text-brand-600 font-bold">已繳</span>' : '<span class="text-slate-400">未繳</span>';
+                
+                // Receipt info
+                const receiptInfo = (student.receiptNo || student.receiptDate) 
+                    ? `<div class="text-[10px] text-slate-600 font-mono">${student.receiptNo || '-'}</div><div class="text-[9px] text-slate-400">${student.receiptDate || ''}</div>`
+                    : '<span class="text-xs text-slate-300">--</span>';
 
                 let rowHTML = `
                     <td class="py-4 px-4 text-left whitespace-nowrap sticky left-0 bg-white z-10 sticky-col font-mono text-slate-400 text-sm border-b border-slate-50">${index + 1}</td>
@@ -502,6 +531,9 @@
                     <td class="py-4 px-4 text-center cursor-pointer border-b border-slate-50 group/paid" onclick="window.togglePayment('${student.id}')">
                          <div class="w-11 h-6 mx-auto rounded-full relative transition-colors duration-200 ease-in-out ${paidClass} shadow-inner"><div class="absolute w-4 h-4 bg-white rounded-full top-1 transition-transform duration-200 ease-in-out shadow-sm ${knobClass}"></div></div>
                          <div class="text-[10px] mt-1.5 opacity-80 group-hover/paid:opacity-100 transition-opacity">${paidText}</div>
+                    </td>
+                    <td class="py-4 px-4 text-center border-b border-slate-50 cursor-pointer hover:bg-slate-50 transition-colors" onclick="window.openReceiptModal('${student.id}')">
+                        ${receiptInfo}
                     </td>
                 `;
                 clsData.dates.forEach(date => {
@@ -520,7 +552,7 @@
 
             const tfoot = document.getElementById('table-footer');
             if (tfoot) {
-                let footerHTML = `<tr class="summary-row"><td class="py-4 px-4 sticky left-0 z-20 sticky-col border-t border-slate-200" colspan="2">📊 出席統計</td><td class="py-4 px-4 border-t border-slate-200" colspan="2"></td>`;
+                let footerHTML = `<tr class="summary-row"><td class="py-4 px-4 sticky left-0 z-20 sticky-col border-t border-slate-200" colspan="2">📊 出席統計</td><td class="py-4 px-4 border-t border-slate-200" colspan="3"></td>`;
                 clsData.dates.forEach(date => { footerHTML += `<td class="py-4 px-2 text-center border-t border-slate-200 border-l border-slate-200 text-slate-600">${attendanceCounts[date]} 人</td>`; });
                 footerHTML += `</tr>`;
                 tfoot.innerHTML = footerHTML;
@@ -595,7 +627,6 @@
                 // Fix: Checkboxes population logic
                 const weekMap = { '日': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 };
                 const scheduleString = cls.schedule;
-                // Important: Look inside the form-class specifically to avoid ambiguity
                 const formEl = document.getElementById('form-class');
                 for (const [char, val] of Object.entries(weekMap)) {
                     if (scheduleString.includes(char)) {
@@ -663,7 +694,6 @@
             renderGrid(newClass);
         };
 
-        // Fix: Removed event.stopPropagation to prevent errors
         window.deleteClass = async (className) => {
             if (!confirm(`確定要刪除「${className}」嗎？`)) return;
             delete state.classes[className];
@@ -699,7 +729,7 @@
                 safeSetHTML('student-modal-title', '<span class="bg-emerald-100 text-emerald-600 w-8 h-8 rounded-lg flex items-center justify-center text-sm">＋</span> 新增學生');
             }
         };
-        // ... (remaining form-student logic unchanged) ...
+        
         document.getElementById('form-student').onsubmit = async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
@@ -731,13 +761,44 @@
             renderSidebar();
         };
 
-        // Export/Import logic from previous steps
+        // --- Receipt Logic ---
+        window.openReceiptModal = (studentId) => {
+            document.getElementById('receipt-modal').classList.remove('hidden');
+            const form = document.getElementById('form-receipt');
+            form.reset();
+            document.getElementById('receipt-student-id').value = studentId;
+            const student = state.classes[state.selectedClass].students.find(s => s.id === studentId);
+            if(student) {
+                document.getElementById('input-receipt-no').value = student.receiptNo || '';
+                document.getElementById('input-receipt-date').value = student.receiptDate || '';
+            }
+        };
+
+        document.getElementById('form-receipt').onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const studentId = formData.get('receiptStudentId');
+            const receiptNo = formData.get('receiptNo');
+            const receiptDate = formData.get('receiptDate');
+            
+            const currentClass = state.classes[state.selectedClass];
+            const student = currentClass.students.find(s => s.id === studentId);
+            if (student) {
+                student.receiptNo = receiptNo;
+                student.receiptDate = receiptDate;
+            }
+            await saveData(state.selectedClass, currentClass);
+            window.closeModal('receipt-modal');
+            renderGrid(currentClass);
+        };
+
+        // Export/Import logic
         document.getElementById('export-btn').onclick = () => { /* ... export logic ... */
             if (!state.selectedClass) { alert('請先選擇一個課程'); return; }
             const clsData = state.classes[state.selectedClass];
-            let csvContent = "座號,姓名,班級,繳費狀態," + clsData.dates.join(",") + "\n";
+            let csvContent = "座號,姓名,班級,繳費狀態,收據號碼,繳費日期," + clsData.dates.join(",") + "\n";
             clsData.students.forEach((student, index) => {
-                let row = [index + 1, student.name, student.level + "班", student.paid ? "已繳" : "未繳"];
+                let row = [index + 1, student.name, student.level + "班", student.paid ? "已繳" : "未繳", student.receiptNo || '', student.receiptDate || ''];
                 clsData.dates.forEach(date => {
                     const status = student.attendance[date];
                     let statusText = "";
